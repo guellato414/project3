@@ -1,0 +1,47 @@
+---
+title: "Project3"
+author: "Matthew Guella"
+date: "3/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+####Please Insert your username here as a test
+```{r}
+#guellato414
+```
+
+#### Loading in the Libraries
+```{r Libraries}
+library(kernlab)
+library(ggplot2)
+library(lattice)
+library(neuralnet)
+library(caret)
+library(class)
+library(gmodels) 
+library(olsrr)
+```
+
+####Loading the data
+```{r Data}
+data<-read.csv("data.csv") #This is the data uo until each fight
+preprocesseddata<-read.csv("preprocessed_data.csv") #This includes the fight details
+```
+
+####Exploring the data
+```{r Examination}
+str(data)
+summary(data) 
+head(data)
+#Winner will be the the y value, it is the 6th column in data
+
+str(preprocesseddata)
+summary(preprocesseddata)
+head(data)
+#Winner will be the y value, it is the 1st column in the data
+```
+
