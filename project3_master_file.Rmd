@@ -9,14 +9,11 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-<<<<<<< HEAD
 ####Please Insert your username here as a test
 ```{r}
 #guellato414
 ```
 
-=======
->>>>>>> 8dabc4931ca9b711268ab0fb2c3f7f2c34368c2e
 #### Loading in the Libraries
 ```{r Libraries}
 library(kernlab)
@@ -31,8 +28,7 @@ library(olsrr)
 
 ####Loading the data
 ```{r Data}
-<<<<<<< HEAD
-data<-read.csv("data.csv") #This is the data uo until each fight
+data<-read.csv("data.csv") #This is the data up until each fight
 preprocesseddata<-read.csv("preprocessed_data.csv") #This includes the fight details
 ```
 
@@ -48,10 +44,10 @@ summary(preprocesseddata)
 head(data)
 #Winner will be the y value, it is the 1st column in the data
 ```
-=======
-data<-read.csv("data.csv")
-preprocesseddata<-read.csv("preprocessed_data.csv")
+
+####Cleaning the Data
+```{r Cleaning}
+
 ```
 
->>>>>>> 8dabc4931ca9b711268ab0fb2c3f7f2c34368c2e
 
