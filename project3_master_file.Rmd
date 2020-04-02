@@ -140,7 +140,8 @@ normalize <- function(x) {
   return((x - min(x)) / (max(x) - min(x)))
 }
 
-bet_n<-as.data.frame(lapply(bet_mm, normalize))
+bet_n<-as.data.frame(lapply(bet_mm, normalize))mm
+
 
 
 ```
