@@ -16,50 +16,104 @@ knitr::opts_chunk$set(echo = TRUE)
 
 #### Loading in the Libraries
 ```{r Libraries}
-library(kernlab)
-library(ggplot2)
-library(lattice)
-library(neuralnet)
-library(caret)
-library(class)
-library(gmodels) 
-library(olsrr)
+#library(kernlab)
+library(ggplot2) #used for graphs
+#library(lattice)
+library(neuralnet) #used for model
+#library(caret)
+#library(class)
+#library(gmodels) 
+#library(olsrr)
+library(tidyverse) #used for filtering and other "good stuff"
+library(corrplot) #used to look for correlation
 ```
 
 ####Loading the data
 ```{r Data}
+bet<-read.csv("data.csv") #This is the data up until each fight, but includes unuseful information, so not used
+
+ufc<-read.csv("preprocessed_data.csv") #This is a partially filtered data set that was recommended to use by Professor Sanjeev Kumar
+
 bet<-read.csv("data.csv") #This is the data up until each fight
+
+data<-read.csv("data.csv") #This is the data up until each fight
+
 preprocesseddata<-read.csv("preprocessed_data.csv") #This includes the fight details
 ```
 
 ####Exploring the data
 ```{r Examination}
-str(bet)
-summary(bet) 
-head(bet)
-#Winner will be the the y value, it is the 6th column in data
+names(ufc) #Looking at the various names, used to easily copy into GLM model
+str(ufc) #Data exploration
+summary(ufc) #Data exploration
+summary(bet$weight_class) #Checking to make sure that the new weightclass subdivide adds up correctly
 
 
-summary(bet$weight_class)
 
+#Need to make Winner Column 0 or 1: 1 Will be if Blue won (since Red is predicted winner). We will care more if there is an upset, since better odds. 
+ufc$Winner<-ifelse(ufc$Winner=="Blue",1,0)
+#table(ufc$Winner) #To check work
 
-str(preprocesseddata)
-summary(preprocesseddata)
-#Winner will be the y value, it is the 1st column in the data
+#Delete Catch weight, since this is not an official weight and thus is variable in weight for fights 
+ufc$weight_class_Catch.Weight<-NULL
 
+#Create a difference between Height, Reach, Age and Weight
+ufc$difference_height<-round(ufc$R_Height_cms-ufc$B_Height_cms,2)
+ufc$difference_reach<-round(ufc$R_Reach_cms-ufc$B_Reach_cms,2)
+#ufc_difference_age<-ufc$R_age-ufc$B_age #Does not work.....WHY?????????????
+ufc$difference_weight<-round(ufc$R_Weight_lbs-ufc$B_Reach_cms,2)
+#table(ufc$difference_height)
+#table(ufc$difference_reach)
+table(ufc$difference_age)
+#table(ufc$difference_weight)
+
+#Delete old variables, since the difference of fighters is important:
+ufc$R_Height_cms<-NULL
+ufc$B_Height_cms<-NULL
+ufc$R_Reach_cms<-NULL
+ufc$B_Reach_cms<-NULL
+ufc$R_Weight_lbs<-NULL
+ufc$B_Weight_lbs<-NULL
 ```
 
 ####Cleaning the Data
 ```{r Cleaning}
+#Remove all the Columns that just have 0's:
+ufc<-ufc[, colSums(ufc != 0) > 0]
 
-#Getting rid of factors to run models :)
-bet$R_fighter<- NULL
-bet$B_fighter<-NULL
-bet$Referee<-NULL
-bet$date<-NULL
-bet$location<-NULL
+###NEED TO WORK HERE
 
-#Step 1: Randomize the Data
+ufc_cut1<-glm(Winner~., data=ufc)
+summary(ufc_cut1)
+
+#Need to make differences in Height
+```
+
+
+<<<<<<< HEAD
+```{r Dividing by classes}
+#Creating different weight classes for guys
+
+ufc_under_145<- filter(ufc, weight_class_Flyweight==1 | weight_class_Bantamweight==1 | weight_class_Featherweight==1)
+ufc_155_to_185<- filter(ufc, weight_class_Lightweight==1 | weight_class_Welterweight==1 | weight_class_Middleweight==1)
+ufc_over_185<- filter(ufc, weight_class_Light.Heavyweight==1 | weight_class_Heavyweight==1)
+#summary(ufc_under_145) #Data exploration
+#str(ufc_under_145) #Data exploration
+#summary(ufc_155_to_185) #Data exploration
+#str(ufc_155_to_185) #Data exploration
+#summary(ufc_over_185) #Data exploration
+#str(ufc_over_185) #Data exploration
+
+
+#Step 1: Removing Columns that only have 0's (blanks)
+ufc_under_145<-ufc_under_145[, colSums(ufc_under_145 != 0) > 0]
+ufc_155_to_185<-ufc_155_to_185[, colSums(ufc_155_to_185 != 0) > 0]
+ufc_over_185<-ufc_over_185[, colSums(ufc_over_185 != 0) > 0]
+
+####Need to Change Names
+
+
+#Step 2: Randomize the Data
 set.seed(123) #To make sure that the models are consistent
 bet_r<- bet[sample(nrow(bet)),]
 
@@ -71,17 +125,14 @@ normalize <- function(x) {
 
 bet_n<-as.data.frame(lapply(bet_mm, normalize))
 
-str(bet_mm)
-summary(bet_mm)
-str(bet_n)
 
-lm<-lm(Winner~., data=bet_mm)
+```
 
 
+```{r}
+#draw_confusion_matrix(x)
+```
 
-
-
-str(data)
 ```
 
 
