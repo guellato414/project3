@@ -28,7 +28,11 @@ library(olsrr)
 
 ####Loading the data
 ```{r Data}
+<<<<<<< HEAD
 bet<-read.csv("data.csv") #This is the data up until each fight
+=======
+data<-read.csv("data.csv") #This is the data up until each fight
+>>>>>>> ec70fdfd5dc5eb1e9b54969e274b4834d001fb82
 preprocesseddata<-read.csv("preprocessed_data.csv") #This includes the fight details
 ```
 
@@ -52,6 +56,7 @@ summary(preprocesseddata)
 ####Cleaning the Data
 ```{r Cleaning}
 
+<<<<<<< HEAD
 #Getting rid of factors to run models :)
 bet$R_fighter<- NULL
 bet$B_fighter<-NULL
@@ -82,6 +87,8 @@ lm<-lm(Winner~., data=bet_mm)
 
 
 str(data)
+=======
+>>>>>>> ec70fdfd5dc5eb1e9b54969e274b4834d001fb82
 ```
 
 
