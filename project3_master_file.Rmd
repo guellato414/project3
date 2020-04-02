@@ -30,6 +30,7 @@ library(corrplot) #used to look for correlation
 
 ####Loading the data
 ```{r Data}
+<<<<<<< HEAD
 bet<-read.csv("data.csv") #This is the data up until each fight, but includes unuseful information, so not used
 
 ufc<-read.csv("preprocessed_data.csv") #This is a partially filtered data set that was recommended to use by Professor Sanjeev Kumar
@@ -38,6 +39,13 @@ bet<-read.csv("data.csv") #This is the data up until each fight
 
 data<-read.csv("data.csv") #This is the data up until each fight
 
+=======
+<<<<<<< HEAD
+bet<-read.csv("data.csv") #This is the data up until each fight
+=======
+data<-read.csv("data.csv") #This is the data up until each fight
+>>>>>>> ec70fdfd5dc5eb1e9b54969e274b4834d001fb82
+>>>>>>> 451435dea95711955e97abba86c7c5ef45935114
 preprocesseddata<-read.csv("preprocessed_data.csv") #This includes the fight details
 ```
 
@@ -91,6 +99,7 @@ summary(ufc_cut1)
 
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 ```{r Dividing by classes}
 #Creating different weight classes for guys
 
@@ -112,6 +121,14 @@ ufc_over_185<-ufc_over_185[, colSums(ufc_over_185 != 0) > 0]
 
 ####Need to Change Names
 
+=======
+#Getting rid of factors to run models :)
+bet$R_fighter<- NULL
+bet$B_fighter<-NULL
+bet$Referee<-NULL
+bet$date<-NULL
+bet$location<-NULL
+>>>>>>> 451435dea95711955e97abba86c7c5ef45935114
 
 #Step 2: Randomize the Data
 set.seed(123) #To make sure that the models are consistent
@@ -133,6 +150,12 @@ bet_n<-as.data.frame(lapply(bet_mm, normalize))
 #draw_confusion_matrix(x)
 ```
 
+<<<<<<< HEAD
+=======
+str(data)
+=======
+>>>>>>> ec70fdfd5dc5eb1e9b54969e274b4834d001fb82
+>>>>>>> 451435dea95711955e97abba86c7c5ef45935114
 ```
 
 
