@@ -16,50 +16,60 @@ knitr::opts_chunk$set(echo = TRUE)
 
 #### Loading in the Libraries
 ```{r Libraries}
-#library(kernlab)
+library(kernlab) #used for SVM Model
 library(ggplot2) #used for graphs
-#library(lattice)
-library(neuralnet) #used for model
-#library(caret)
-#library(class)
-#library(gmodels) 
-#library(olsrr)
+library(neuralnet) #used for  Neural Net model
+library(caret) #Used for Confusion Matrix
+library(class) #Used for KNN Model
+library(gmodels) #Used for CrossTable Function
+library(olsrr) #to reduce column count
 library(tidyverse) #used for filtering and other "good stuff"
 library(corrplot) #used to look for correlation
+library(C50) #Used for Tree Model
 ```
 
 ####Loading the data
 ```{r Data}
 bet<-read.csv("data.csv") #This is the data up until each fight, but includes unuseful information, so not used
 
-ufc<-read.csv("preprocessed_data.csv") #This is a partially filtered data set that was recommended to use by Professor Sanjeev Kumar
+ufc<-read.csv("preprocessed_data.csv", header=TRUE) #This is a partially filtered data set that was recommended to use by Professor Sanjeev Kumar
 ```
 
 ####Exploring the data
 ```{r Examination}
-names(ufc) #Looking at the various names, used to easily copy into GLM model
-str(ufc) #Data exploration
-summary(ufc) #Data exploration
-summary(bet$weight_class) #Checking to make sure that the new weightclass subdivide adds up correctly
+#Step 1: Explore the Data and see what needs to be done
 
-
+#names(ufc) #Looking at the various names, used to easily copy into GLM model
+#str(ufc) #Data exploration
+#summary(ufc) #Data exploration
+#summary(bet$weight_class) #Checking to make sure that the new weightclass subdivide adds up correctly
 
 #Need to make Winner Column 0 or 1: 1 Will be if Blue won (since Red is predicted winner). We will care more if there is an upset, since better odds. 
 ufc$Winner<-ifelse(ufc$Winner=="Blue",1,0)
 #table(ufc$Winner) #To check work
 
+ufc$title_bout<-ifelse(ufc$title_bout=="True",1,0) #Makes a 1 if a title bout or 0 if not. Making binary since other-wise it is perfectly negatively correlated.
+
+#table(ufc$title_bout) #To check work
+
+
 #Delete Catch weight, since this is not an official weight and thus is variable in weight for fights 
 ufc$weight_class_Catch.Weight<-NULL
+```
+
+####Finding The differences/Creating Better Variables
+```{r Differences}
+#Step 2: Create Better Variables off the Data
 
 #Create a difference between Height, Reach, Age and Weight
 ufc$difference_height<-round(ufc$R_Height_cms-ufc$B_Height_cms,2)
 ufc$difference_reach<-round(ufc$R_Reach_cms-ufc$B_Reach_cms,2)
-#ufc_difference_age<-ufc$R_age-ufc$B_age #Does not work.....WHY?????????????
+ufc$difference_age<-as.numeric(ufc$R_age)-as.numeric(ufc$B_age)
 ufc$difference_weight<-round(ufc$R_Weight_lbs-ufc$B_Reach_cms,2)
-#table(ufc$difference_height)
-#table(ufc$difference_reach)
-table(ufc$difference_age)
-#table(ufc$difference_weight)
+#table(ufc$difference_height) #Checking results of difference
+#table(ufc$difference_reach) #Checking results of difference
+#table(ufc$difference_age) #Checking results of difference
+#table(ufc$difference_weight) #Checking results of difference
 
 #Delete old variables, since the difference of fighters is important:
 ufc$R_Height_cms<-NULL
@@ -68,28 +78,113 @@ ufc$R_Reach_cms<-NULL
 ufc$B_Reach_cms<-NULL
 ufc$R_Weight_lbs<-NULL
 ufc$B_Weight_lbs<-NULL
+ufc$R_age<-NULL
+ufc$B_age<-NULL
+
+#str(ufc) #Checking the differences
 ```
 
-####Cleaning the Data
+####Cleaning and Normalizing the Data
 ```{r Cleaning}
 #Remove all the Columns that just have 0's:
 ufc<-ufc[, colSums(ufc != 0) > 0]
 
-###NEED TO WORK HERE
+#Step 3(A): Randomize and Normalize the Data: Thus all algorithms will work
+set.seed(123) #To make sure that the models are consistent
+ufc_r<- ufc[sample(nrow(ufc)),] #selecting every row and column
 
-ufc_cut1<-glm(Winner~., data=ufc)
-summary(ufc_cut1)
+ufc_mm<-as.data.frame(model.matrix(~ . -1, data=ufc_r)) #Gets rid of all factors
 
-#Need to make differences in Height
+#summary(ufc_mm) #Commented-out for reading-ease
+
+normalize <- function(x) { 
+  return((x - min(x)) / (max(x) - min(x)))
+}
+
+ufc_n<-as.data.frame(lapply(ufc_mm, normalize)) #Makes all the data between 0-1 for comparison
+
+# summary(ufc_n) #Commented-out for reading-ease
+
+
+cut1<-glm(Winner~., data=ufc_n)
+summary(cut1)
+
+#Realized that there were NA's due to most likely correlation
+
+hypothesis <- data.frame( 
+       B_avg_LEG_att = ufc_n$B_avg_LEG_att,
+       B_avg_LEG_landed = ufc_n$B_avg_LEG_landed ,
+       B_avg_opp_LEG_att = ufc_n$B_avg_opp_LEG_att,
+       B_avg_opp_LEG_landed = ufc_n$B_avg_opp_LEG_landed,
+       B_avg_SIG_STR_att = ufc_n$B_avg_SIG_STR_att,
+       B_avg_SIG_STR_landed = ufc_n$B_avg_SIG_STR_landed,
+       B_avg_opp_SIG_STR_att = ufc_n$B_avg_opp_SIG_STR_att,
+       B_Stance_Switch = ufc_n$B_Stance_Switch,
+       R_avg_LEG_att = ufc_n$R_avg_LEG_att,
+       R_avg_LEG_landed = ufc_n$R_avg_LEG_landed ,
+       R_avg_opp_LEG_att = ufc_n$R_avg_opp_LEG_att,
+       R_avg_opp_LEG_landed = ufc_n$R_avg_opp_LEG_landed,
+       R_avg_SIG_STR_att = ufc_n$R_avg_SIG_STR_att,
+       R_avg_SIG_STR_landed = ufc_n$R_avg_SIG_STR_landed,
+       R_avg_opp_SIG_STR_att = ufc_n$R_avg_opp_SIG_STR_att,
+       R_Stance_Switch = ufc_n$R_Stance_Switch
+       )
+
+hypothesis.cor <- round(cor((hypothesis)),1)
+
+corrplot(hypothesis.cor) 
+#As you can see the Att and Landed are very highly correlated for the fighters. So is whether the fights fight with a switch stance. Since gambling can have prop bets we are going to NULL the ATT and keep the landed. We will NUll the R Switch, since they are the favorite and we want to see what can make the underdog win, since better gambling reward.
+
+ufc_n$B_avg_LEG_att<-NULL
+ufc_n$B_avg_opp_LEG_att<-NULL
+ufc_n$B_avg_SIG_STR_att<-NULL
+ufc_n$B_avg_opp_SIG_STR_att<-NULL
+ufc_n$R_avg_LEG_att<-NULL
+ufc_n$R_avg_opp_LEG_att<-NULL
+ufc_n$R_avg_SIG_STR_att<-NULL
+ufc_n$R_avg_opp_SIG_STR_att<-NULL
+ufc_n$R_Stance_Switch<-NULL
+
+#Another Data frame to see the new interactions
+hypothesis_2 <- data.frame( 
+       B_avg_LEG_landed = ufc_n$B_avg_LEG_landed ,
+       B_avg_opp_LEG_landed = ufc_n$B_avg_opp_LEG_landed,
+       B_avg_SIG_STR_landed = ufc_n$B_avg_SIG_STR_landed,
+       B_avg_opp_SIG_STR_landed = ufc_n$B_avg_opp_SIG_STR_landed,    
+       B_Stance_Switch = ufc_n$B_Stance_Switch,
+       R_avg_LEG_landed = ufc_n$R_avg_LEG_landed ,
+       R_avg_opp_LEG_landed = ufc_n$R_avg_opp_LEG_landed,
+       R_avg_SIG_STR_landed = ufc_n$R_avg_SIG_STR_landed,
+       R_avg_opp_SIG_STR_landed = ufc_n$R_avg_opp_SIG_STR_landed
+       )
+
+hypothesis.cor2 <- round(cor((hypothesis_2)),1)
+corrplot(hypothesis.cor2) #Looking better
+
+#Run GLM model again and see results
+cut2<-glm(Winner~., data=ufc_n)
+summary(cut2)
+
+####I am confused after this step why there are still NA's please help
+
+#Need to Null More due to Correlation. Deleting SIG_STR, since the percentage column is working and that is what we will base off-of. Also, deleted opponets 
+#ufc_n$B_avg_SIG_STR_landed<-NULL #Needed to 
+#ufc_n$R_avg_SIG_STR_landed<-NULL
+#ufc_n$B_avg_opp_SIG_STR_landed<-NULL
+#ufc_n$R_avg_opp_SIG_STR_landed<-NULL
+#ufc_n$B_avg_opp_LEG_landed<-NULL
+#ufc_n$R_avg_opp_LEG_landed<-NULL
+
+#Anyone got any ideas what is going on still?
 ```
 
-
+#####Dividing the Normalized Data into Various Classes
 ```{r Dividing by classes}
 #Creating different weight classes for guys
 
-ufc_under_145<- filter(ufc, weight_class_Flyweight==1 | weight_class_Bantamweight==1 | weight_class_Featherweight==1)
-ufc_155_to_185<- filter(ufc, weight_class_Lightweight==1 | weight_class_Welterweight==1 | weight_class_Middleweight==1)
-ufc_over_185<- filter(ufc, weight_class_Light.Heavyweight==1 | weight_class_Heavyweight==1)
+ufc_under_145<- filter(ufc_n, weight_class_Flyweight==1 | weight_class_Bantamweight==1 | weight_class_Featherweight==1)
+ufc_155_to_185<- filter(ufc_n, weight_class_Lightweight==1 | weight_class_Welterweight==1 | weight_class_Middleweight==1)
+ufc_over_185<- filter(ufc_n, weight_class_Light.Heavyweight==1 | weight_class_Heavyweight==1)
 #summary(ufc_under_145) #Data exploration
 #str(ufc_under_145) #Data exploration
 #summary(ufc_155_to_185) #Data exploration
@@ -98,33 +193,252 @@ ufc_over_185<- filter(ufc, weight_class_Light.Heavyweight==1 | weight_class_Heav
 #str(ufc_over_185) #Data exploration
 
 
-#Step 1: Removing Columns that only have 0's (blanks)
+#Removing Columns that only have 0's (blanks):
 ufc_under_145<-ufc_under_145[, colSums(ufc_under_145 != 0) > 0]
 ufc_155_to_185<-ufc_155_to_185[, colSums(ufc_155_to_185 != 0) > 0]
 ufc_over_185<-ufc_over_185[, colSums(ufc_over_185 != 0) > 0]
+```
 
-####Need to Change Names
+####Train and Test Datasets
+```{r Creating the Test and Train Datasets }
 
-#Step 2: Randomize the Data
-set.seed(123) #To make sure that the models are consistent
-bet_r<- bet[sample(nrow(bet)),]
+#Looking at str to find the number of rows and where the Y Variable is located. Using 20% for test data
+#str(ufc_under_145) #727 data rows: 20%=146 & column 1= Y Variable
+#str(ufc_155_to_185) #1917 data rows: 20%=384 & column 1= Y Variable
+#str(ufc_over_185) #688 data rows: 20%=138 & column 1= Y Variable
 
-bet_mm<-as.data.frame(model.matrix(~ . -1, data=bet_r))
+#KNN=Need Labels Seperated out for Under 145
+ufc_145_train_KNN<-ufc_under_145[147:nrow(ufc_under_145),-1]
+ufc_145_train_labels_KNN<-ufc_under_145[147:nrow(ufc_under_145),1] 
+ufc_145_test_KNN<-ufc_under_145[1:146,-1] 
+ufc_145_test_labels_KNN<-ufc_under_145[1:146,1]
+#ANN and SVM Keep Labels in the Data for Under 145
+ufc_145_train<-ufc_under_145[147:nrow(ufc_under_145),]
+ufc_145_test<-ufc_under_145[1:146,]
 
-normalize <- function(x) { 
-  return((x - min(x)) / (max(x) - min(x)))
-}
 
-bet_n<-as.data.frame(lapply(bet_mm, normalize))mm
+#KNN=Need Labels Seperated out for 155-185
+ufc_u185_train_KNN<-ufc_155_to_185[385:nrow(ufc_155_to_185),-1]
+ufc_u185_train_labels_KNN<-ufc_155_to_185[385:nrow(ufc_155_to_185),1] 
+ufc_u185_test_KNN<-ufc_155_to_185[1:384,-1] 
+ufc_u185_test_labels_KNN<-ufc_155_to_185[1:384,1]
+#ANN and SVM Keep Labels in the Data for 155-185
+ufc_u185_train<-ufc_155_to_185[385:nrow(ufc_155_to_185),]
+ufc_u185_test<-ufc_155_to_185[1:384,]
 
 
+#KNN=Need Labels Seperated out for over 185
+ufc_o185_train_KNN<-ufc_over_185[139:nrow(ufc_over_185),-1]
+ufc_o185_train_labels_KNN<-ufc_over_185[139:nrow(ufc_over_185),1]
+ufc_o185_test_KNN<-ufc_over_185[1:138,-1] 
+ufc_o185_test_labels_KNN<-ufc_over_185[1:138,1]
+#ANN and SVM Keep Labels in the Data for over 185
+ufc_o185_train<-ufc_over_185[139:nrow(ufc_over_185),]
+ufc_o185_test<-ufc_over_185[1:138,]
 
 ```
 
+####First Model: KNN
+```{r KNN Model}
+#UFC u145
+KNNm145<- knn(train= ufc_145_train_KNN, test=ufc_145_test_KNN, cl= ufc_145_train_labels_KNN, k=7)
 
+CT145<-CrossTable(x=ufc_145_test_labels_KNN, y=KNNm145, prop.chisq = FALSE, fisher=TRUE)
+
+confusionMatrix(as.factor(KNNm145), as.factor(ufc_145_test_labels_KNN))
+
+#UFC 145-185
+KNNmu185<- knn(train= ufc_u185_train_KNN, test=ufc_u185_test_KNN, cl= ufc_u185_train_labels_KNN, k=7)
+
+CTu185<-CrossTable(x=ufc_u185_test_labels_KNN, y=KNNmu185, prop.chisq = FALSE, fisher=TRUE)
+
+confusionMatrix(as.factor(KNNmu185), as.factor(ufc_u185_test_labels_KNN))
+
+#UFC Over 185
+KNNmo185<- knn(train= ufc_o185_train_KNN, test=ufc_o185_test_KNN, cl= ufc_o185_train_labels_KNN, k=7)
+
+CTo185<-CrossTable(x=ufc_o185_test_labels_KNN, y=KNNmo185, prop.chisq = FALSE, fisher=TRUE)
+
+confusionMatrix(as.factor(KNNmo185), as.factor(ufc_o185_test_labels_KNN))
+```
+
+####Second Model: SVM
+```{r SVM Model}
+#UFC u145
+svmu145<-ksvm(Winner~., data=ufc_145_train, kernel="rbfdot") #Figure out what scale issue is
+
+svm_predict1<-predict(svmu145, ufc_145_test)
+
+svm_u145_bin<-ifelse(svm_predict1>=0.6,1,0)
+
+confusionMatrix(as.factor(svm_u145_bin),as.factor(ufc_145_test$Winner))
+
+#UFC u185
+svmu185<-ksvm(Winner~., data=ufc_u185_train, kernel="rbfdot") #Figure out what scale issue is
+
+svm_predict2<-predict(svmu185, ufc_u185_test)
+
+svm_u185_bin<-ifelse(svm_predict2>=0.6,1,0)
+
+confusionMatrix(as.factor(svm_u185_bin),as.factor(ufc_u185_test$Winner))
+
+#UFC o185
+svmo185<-ksvm(Winner~., data=ufc_o185_train, kernel="rbfdot") #Figure out what scale issue is
+
+svm_predict3<-predict(svmo185, ufc_o185_test)
+
+svm_o185_bin<-ifelse(svm_predict3>=0.6,1,0)
+
+confusionMatrix(as.factor(svm_o185_bin),as.factor(ufc_o185_test$Winner))
+```
+
+####Third Model: Neural Network
 ```{r}
-#draw_confusion_matrix(x)
+#U145 Model
+U145ANN<-neuralnet(Winner~., data=ufc_145_train, hidden=1, linear.output = FALSE) #must use linear since 0 or 1
+
+plot(U145ANN) #plotting the model
+
+U145ANN_results<- neuralnet::compute(U145ANN,ufc_145_test[2:ncol(ufc_145_test)]) #used neuralnet:: since platform was confused by what compute to use. Do not include actual label.
+
+predicted_Winner1<-U145ANN_results$net.result
+
+cor(predicted_Winner1, ufc_145_test$Winner) #.07 :(
+
+win_bin1<-ifelse(predicted_Winner1 >= 0.062,1,0)
+
+confusionMatrix(as.factor(win_bin1),as.factor(ufc_145_test$Winner))
+
+#U185 Model
+U185ANN<-neuralnet(Winner~., data=ufc_u185_train, hidden=1, linear.output = FALSE) #must use linear since 0 or 1
+
+plot(U185ANN) #plotting the model
+
+U185ANN_results<- neuralnet::compute(U185ANN,ufc_u185_test[2:ncol(ufc_u185_test)]) #used neuralnet:: since platform was confused by what compute to use. Do not include actual label.
+
+predicted_Winner2<-U185ANN_results$net.result
+
+cor(predicted_Winner2, ufc_u185_test$Winner) #.11 :(
+
+win_bin2<-ifelse(predicted_Winner2 >= 0.062,1,0)
+
+confusionMatrix(as.factor(win_bin2),as.factor(ufc_u185_test$Winner))
+
+#O185 Model
+O185ANN<-neuralnet(Winner~., data=ufc_o185_train, hidden=1, linear.output = FALSE) #must use linear since 0 or 1
+
+plot(O185ANN) #plotting the model
+
+O185ANN_results<- neuralnet::compute(O185ANN,ufc_o185_test[2:ncol(ufc_o185_test)]) #used neuralnet:: since platform was confused by what compute to use. Do not include actual label.
+
+predicted_Winner3<-O185ANN_results$net.result
+
+cor(predicted_Winner3, ufc_o185_test$Winner) #.17 :(
+
+win_bin3<-ifelse(predicted_Winner3 >= 0.062,1,0)
+
+confusionMatrix(as.factor(win_bin3),as.factor(ufc_o185_test$Winner))
 ```
 
+####Model 4: Tree Model
+```{r Tree Model}
+#Under 145
+#c5.0 Models needa factor outcome, so convert Winner to factor:
+ufc_145_train$Winner<-as.factor(ufc_145_train$Winner)
+
+tree_u145 <- C5.0(ufc_145_train[,-1], ufc_145_train$Winner, trials=3) 
+
+tree_u145_pred<- predict(tree_u145, ufc_145_test)
+
+confusionMatrix(as.factor(tree_u145_pred), as.factor(ufc_145_test$Winner))
+
+#Under 185
+ufc_u185_train$Winner<-as.factor(ufc_u185_train$Winner)
+
+tree_u185 <- C5.0(ufc_u185_train[,-1], ufc_u185_train$Winner, trials=3) 
+
+tree_u185_pred<- predict(tree_u185, ufc_u185_test)
+
+confusionMatrix(as.factor(tree_u185_pred), as.factor(ufc_u185_test$Winner))
+
+#Over 185
+ufc_o185_train$Winner<-as.factor(ufc_o185_train$Winner)
+
+tree_o185 <- C5.0(ufc_o185_train[,-1], ufc_o185_train$Winner, trials=3) 
+
+tree_o185_pred<- predict(tree_o185, ufc_o185_test)
+
+confusionMatrix(as.factor(tree_o185_pred), as.factor(ufc_o185_test$Winner))
+```
+
+####Creating the Master Model: Simple Majority
+```{r Final Combined Models}
+#Name of KNN model: KNNm145, actual column: KNNm145 (changes to u185; o185)
+#Name of SVM model: svmu145, actual column: svm_u145_bin (changes to u185, 2; o185, 3)
+#Name of ANN model:U145ANN, actual column:win_bin1 (changes to U185ANN, win_bin2; O185ANN, 3)
+#Name of Tree Model: tree_u145, actual columb: tree_u145_pred (changes to u185; o185)
+#Row to predict: ufc_145_labels_KNN (changes)
+
+#Create Data frame to bring together results: U145
+combinedu145<-data.frame(KNNm145,svm_u145_bin, win_bin1, tree_u145_pred, ufc_145_test_labels_KNN )
+#head(combinedu145)
+
+#Make the data numeric so functions run properly
+combinedu145$KNNm145<-as.numeric(combinedu145$KNNm145)
+combinedu145$svm_u145_bin<-as.numeric(combinedu145$svm_u145_bin)
+combinedu145$win_bin1<-as.numeric(combinedu145$win_bin1)
+combinedu145$tree_u145_pred<-as.numeric(combinedu145$tree_u145_pred)
+
+#Ifelse statement to combine the three models
+combinedu145$result<-ifelse(combinedu145$KNNm145+combinedu145$svm_u145_bin+combinedu145$win_bin1+combinedu145$tree_u145_pred >= 2,1,0)
+
+confusionMatrix(as.factor(combinedu145$result),as.factor(ufc_145_test_labels_KNN))
+
+
+#Create Data frame to bring together results: U185
+combinedu185<-data.frame(KNNmu185,svm_u185_bin, win_bin2, tree_u185_pred, ufc_u185_test_labels_KNN )
+#head(combinedu145)
+
+#Make the data numeric so functions run properly
+combinedu185$KNNmu185<-as.numeric(combinedu185$KNNmu185)
+combinedu185$svm_u185_bin<-as.numeric(combinedu185$svm_u185_bin)
+combinedu185$win_bin2<-as.numeric(combinedu185$win_bin2)
+combinedu185$tree_u185_pred<-as.numeric(combinedu185$tree_u185_pred)
+
+#Ifelse statement to combine the three models
+combinedu185$result<-ifelse(combinedu185$KNNmu185+combinedu185$svm_u185_bin+combinedu185$win_bin2+combinedu185$tree_u185_pred >= 2,1,0)
+
+confusionMatrix(as.factor(combinedu185$result),as.factor(ufc_u185_test_labels_KNN))
+
+#Create Data frame to bring together results: O185
+combinedo185<-data.frame(KNNmo185,svm_o185_bin, win_bin3, tree_o185_pred, ufc_o185_test_labels_KNN )
+#head(combinedu145)
+
+#Make the data numeric so functions run properly
+combinedo185$KNNmo185<-as.numeric(combinedo185$KNNmo185)
+combinedo185$svm_o185_bin<-as.numeric(combinedo185$svm_o185_bin)
+combinedo185$win_bin3<-as.numeric(combinedo185$win_bin3)
+combinedo185$tree_o185_pred<-as.numeric(combinedo185$tree_o185_pred)
+
+#Ifelse statement to combine the three models
+combinedo185$result<-ifelse(combinedo185$KNNmo185+combinedo185$svm_o185_bin+combinedo185$win_bin3+combinedo185$tree_o185_pred >= 2,1,0)
+
+confusionMatrix(as.factor(combinedo185$result),as.factor(ufc_o185_test_labels_KNN))
+```
+
+```{r Stuff to Do}
+###Find a way to delete some columns, Jake doesn't like step, but I'm Willing to compromise
+###Figure out lines 172, Idk why still NA's... Just play around in that section and see if you can solve
+###Run the models, once two previous lines are done (above) and then play around with them
+###Especially changing the hidden, and binary predictions
+###Pretty Sure we do not need Cross table and confusionMatrix
+###could toss into costs, thoughts? Since we are gambling ;) For Tree Model example
+###Toss into summaries, where wanted and then # over them so don't mess-up code.
+###Yea, I got no idea why it goes from 145 to 155 :(
+###Probably should create a GLM Model
+###Someone can create a womens models, I just ignored them
+####No idea this error line 293--- most confusion matrix are SOL :(
+###draw_confusion_matrix(x)- makes them look pretty
+```
 
 
