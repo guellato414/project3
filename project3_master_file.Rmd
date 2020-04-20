@@ -1,7 +1,7 @@
 ---
-title: "Project3"
+title: "Project3_Final"
 author: "Matthew Guella"
-date: "3/30/2020"
+date: "4/20/2020"
 output: html_document
 ---
 
@@ -9,67 +9,137 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-####Please Insert your username here as a test
-```{r}
-#guellato414
-```
-
 #### Loading in the Libraries
 ```{r Libraries}
-library(kernlab) #used for SVM Model
-library(ggplot2) #used for graphs
-library(neuralnet) #used for  Neural Net model
-library(caret) #Used for Confusion Matrix
-library(class) #Used for KNN Model
-library(gmodels) #Used for CrossTable Function
-library(olsrr) #to reduce column count
-library(tidyverse) #used for filtering and other "good stuff"
-library(corrplot) #used to look for correlation
-library(C50) #Used for Tree Model
+suppressPackageStartupMessages(library(kernlab)) #used for SVM Model
+suppressPackageStartupMessages(library(ggplot2)) #used for graphs
+suppressPackageStartupMessages(library(neuralnet)) #used for  Neural Net model
+suppressPackageStartupMessages(library(caret)) #Used for Confusion Matrix and Modeling
+suppressPackageStartupMessages(library(class)) #Used for KNN Model
+suppressPackageStartupMessages(library(gmodels)) #Used for CrossTable Function
+suppressPackageStartupMessages(library(olsrr)) #to reduce column count
+suppressPackageStartupMessages(library(tidyverse)) #used for filtering and other "good stuff"
+suppressPackageStartupMessages(library(corrplot)) #used to look for correlation
+suppressPackageStartupMessages(library(C50)) #Used for Tree Model
+suppressPackageStartupMessages(library(randomForest)) #Using for a Random Forest
+suppressPackageStartupMessages(library(usdm)) #used for VIF step
+suppressPackageStartupMessages(library(party)) #Used for Stacked-Model: Ctree
 ```
 
 ####Loading the data
 ```{r Data}
 bet<-read.csv("data.csv") #This is the data up until each fight, but includes unuseful information, so not used
-
 ufc<-read.csv("preprocessed_data.csv", header=TRUE) #This is a partially filtered data set that was recommended to use by Professor Sanjeev Kumar
 ```
 
-####Exploring the data
-```{r Examination}
-#Step 1: Explore the Data and see what needs to be done
 
+#Plots For Data Exploration
+```{r Plot Exploration}
+#Exploring the data with plots
+#We wanted to do a few plots for data exploration. We were looking to better understand if weight classes make a difference, explore if it would make sense to segment by weight class, and see if any variables stick out.
+
+#segment by weight class
+ufc$weightclasses <- ifelse(ufc$weight_class_Bantamweight==1, "Bantamweight", ifelse(ufc$weight_class_Featherweight==1,"Featherweight",ifelse(ufc$weight_class_Flyweight==1, "Flyweight",ifelse(ufc$weight_class_Heavyweight==1, "Heavyweight", ifelse(ufc$weight_class_Lightweight==1, "Lightweight",ifelse(ufc$weight_class_Middleweight==1, "Middleweight",ifelse(ufc$weight_class_Open.Weight==1, "Open Weight", ifelse(ufc$weight_class_Welterweight ==1, "Welterweight",0))))))))
+ufc$weightclasses <- as.factor(ufc$weightclasses)
+
+#Age
+ufc$age<- (ufc$B_age + ufc$R_age)/2
+ageplot<-tapply(ufc$age, ufc$weightclasses, mean, na.rm = TRUE)
+ageplot <- ageplot[-1]
+barplot(ageplot, main="Weight Class Vs. Age", xlab="Weightclass",  ylab="Age (yrs)",las=2, cex.names = .4, col=c("black", "white", "blue", "red", "orange", "yellow", "purple", "green")) 
+#Here we can see the age discrepancies by weight class. There is varying average age per weight class. Heavy weight and middleweight tend to be older, while feather weight and flyweight tend to be younger. 
+
+#Height
+ufc$height<- (ufc$B_Height_cms + ufc$R_Height_cms)/2
+heightplot<-tapply(ufc$height,ufc$weightclasses,mean, na.rm=TRUE)
+heightplot <- heightplot[-1]
+barplot(heightplot, main="Weight Class Vs. Height", xlab="Weightclass",  ylab="Height (cm)" ,las=2, cex.names = .4, col=c("black", "white", "blue", "red", "orange", "yellow", "purple", "green"))
+#The average height greatly varies depending on weight class. This makes a lot of sense because generally speaking, the taller you are, the more you weigh. Heavyweight and open weight have the highest height averages, while flyweight has the lowest (flyweight is the lowest weight class at <112 pounds). 
+
+#Weight
+ufc$weight<- (ufc$B_Weight_lbs + ufc$R_Weight_lbs)/2
+weightplot<-tapply(ufc$weight,ufc$weightclasses,mean, na.rm = TRUE)
+weightplot <- weightplot[-1]
+barplot(weightplot, main="Weight Class Vs, Weight (lbs)", xlab="Weightclass",  ylab="Weight (lbs)",las=2, cex.names = .4, col=c("black", "white", "blue", "red", "orange", "yellow", "purple", "green"))
+#This graph plots the obvious but confirms the notion that the data shows the weight classes being divided by weight accurately. Of course, the heavier weight classes have higher average weights and the lower weight classes have lower average weights. As the weight classes go up, there are huge jumps in average weight.
+
+#Number of Rounds
+roundsplot<-tapply(ufc$no_of_rounds,ufc$weightclasses,mean, na.rm=TRUE)
+roundsplot <- roundsplot[-1]
+barplot(roundsplot, main="Weight Class Vs. Number of Rounds", xlab="Weightclass",  ylab="Number of Rounds", las=2, cex.names = .4, col=c("black", "white", "blue", "red", "orange", "yellow", "purple", "green"))
+#This plot shows the average number of rounds in a fight segmented by weight class. There are 5 rounds in UFC fights, and the bar plot shows that most of the weight classes have similar averages, with heavyweights going the longest. It is interesting to note the outlier (Open Weight) being significantly less than the other weight classes.
+```
+
+
+####Exploring the data and Deleting Women/Catch
+```{r Exploration and Deleting Women}
+#Step 1: Explore the Data and see what needs to be done
 #names(ufc) #Looking at the various names, used to easily copy into GLM model
 #str(ufc) #Data exploration
 #summary(ufc) #Data exploration
 #summary(bet$weight_class) #Checking to make sure that the new weightclass subdivide adds up correctly
-
 #Need to make Winner Column 0 or 1: 1 Will be if Blue won (since Red is predicted winner). We will care more if there is an upset, since better odds. 
 ufc$Winner<-ifelse(ufc$Winner=="Blue",1,0)
-#table(ufc$Winner) #To check work
-
+#table(ufc$Winner) #Checking work to make sure the output is correct.
 ufc$title_bout<-ifelse(ufc$title_bout=="True",1,0) #Makes a 1 if a title bout or 0 if not. Making binary since other-wise it is perfectly negatively correlated.
+#table(ufc$title_bout) #Checking work to make sure the output is correct.
 
-#table(ufc$title_bout) #To check work
-
-
-#Delete Catch weight, since this is not an official weight and thus is variable in weight for fights 
+#Delete Catch weight, since this is not an official weight and thus is variable in weight for fights. Also, delete women's weight classes due to different fighting tactics.
+ufc <- ufc[ufc$weight_class_Catch.Weight != 1, ]
 ufc$weight_class_Catch.Weight<-NULL
+ufc <- ufc[ufc$weight_class_Women.s.Bantamweight != 1, ]
+ufc$weight_class_Women.s.Bantamweight <- NULL
+ufc <- ufc[ufc$weight_class_Women.s.Featherweight != 1, ]
+ufc$weight_class_Women.s.Featherweight <- NULL
+ufc <- ufc[ufc$weight_class_Women.s.Flyweight != 1, ]
+ufc$weight_class_Women.s.Flyweight <- NULL
+ufc <- ufc[ufc$weight_class_Women.s.Strawweight != 1, ]
+ufc$weight_class_Women.s.Strawweight <- NULL
 ```
 
 ####Finding The differences/Creating Better Variables
-```{r Differences}
-#Step 2: Create Better Variables off the Data
-
-#Create a difference between Height, Reach, Age and Weight
+```{r Creating the Difference Columns}
+#Step 2: Create Better Variables off the Data 
+#General Fighter Information: Height, Reach, Age and Weight
 ufc$difference_height<-round(ufc$R_Height_cms-ufc$B_Height_cms,2)
 ufc$difference_reach<-round(ufc$R_Reach_cms-ufc$B_Reach_cms,2)
 ufc$difference_age<-as.numeric(ufc$R_age)-as.numeric(ufc$B_age)
-ufc$difference_weight<-round(ufc$R_Weight_lbs-ufc$B_Reach_cms,2)
-#table(ufc$difference_height) #Checking results of difference
-#table(ufc$difference_reach) #Checking results of difference
-#table(ufc$difference_age) #Checking results of difference
-#table(ufc$difference_weight) #Checking results of difference
+ufc$difference_weight<-round(ufc$R_Weight_lbs-ufc$B_Weight_lbs,2)
+
+#Fighter STR:
+ufc$difference_avg_opp_SIG_STR_landed<-round(ufc$R_avg_opp_SIG_STR_landed-ufc$B_avg_opp_SIG_STR_landed,2)
+ufc$difference_avg_SIG_STR_att<-round(ufc$R_avg_SIG_STR_att-ufc$B_avg_SIG_STR_att,2)
+ufc$difference_avg_opp_TOTAL_STR_landed <- round(ufc$R_avg_opp_TOTAL_STR_landed-ufc$B_avg_opp_TOTAL_STR_landed,2)
+ufc$difference_avg_opp_TOTAL_STR_att <- round(ufc$R_avg_opp_TOTAL_STR_att-ufc$B_avg_opp_TOTAL_STR_att,2)
+ufc$difference_avg_TOTAL_STR_landed <- round(ufc$R_avg_TOTAL_STR_landed-ufc$B_avg_TOTAL_STR_landed,2)
+ufc$difference_avg_TOTAL_STR_att <- round(ufc$R_avg_TOTAL_STR_att-ufc$B_avg_TOTAL_STR_att,2)
+ufc$difference_avg_SIG_STR_pct<-round(ufc$R_avg_SIG_STR_pct-ufc$B_avg_SIG_STR_pct,2)
+
+#Fighter Head:
+ufc$difference_avg_opp_head_landed <- round(ufc$R_avg_opp_HEAD_landed-ufc$B_avg_opp_HEAD_landed,2)
+
+#Fighter TD:
+ufc$difference_avg_TD_att <- round(ufc$R_avg_TD_att-ufc$B_avg_TD_att,2)
+ufc$difference_avg_TD_pct <- round(ufc$R_avg_TD_pct-ufc$B_avg_TD_pct,2)
+ufc$difference_avg_opp_TD_pct <- round(ufc$R_avg_opp_TD_pct-ufc$B_avg_opp_TD_pct,2)
+
+#Fighter Ground:
+ufc$difference_avg_opp_GROUND_att <- round(ufc$R_avg_opp_GROUND_att-ufc$B_avg_opp_GROUND_att,2)
+ufc$difference_avg_opp_GROUND_landed <- round(ufc$R_avg_opp_GROUND_landed-ufc$B_avg_opp_GROUND_landed,2)
+ufc$difference_avg_GROUND_landed <- round(ufc$R_avg_GROUND_landed-ufc$B_avg_GROUND_landed,2)
+
+#Fighter Leg:
+ufc$difference_avg_opp_LEG_landed <- round(ufc$R_avg_opp_LEG_landed - ufc$B_avg_opp_LEG_landed,2)
+
+#Fighter Body:
+ufc$difference_avg_opp_BODY_landed <- round(ufc$R_avg_opp_BODY_landed - ufc$B_avg_opp_BODY_landed,2)
+
+#Fighter Clinch:
+ufc$difference_avg_CLINCH_landed <- round(ufc$R_avg_CLINCH_landed-ufc$B_avg_CLINCH_landed,2)
+ufc$difference_avg_CLINCH_att <- round(ufc$R_avg_CLINCH_att-ufc$B_avg_CLINCH_att,2)
+
+#Fighter Distance:
+ufc$difference_avg_opp_DISTANCE_att <- round(ufc$R_avg_opp_DISTANCE_att-ufc$B_avg_opp_DISTANCE_att,2)
 
 #Delete old variables, since the difference of fighters is important:
 ufc$R_Height_cms<-NULL
@@ -80,365 +150,928 @@ ufc$R_Weight_lbs<-NULL
 ufc$B_Weight_lbs<-NULL
 ufc$R_age<-NULL
 ufc$B_age<-NULL
+ufc$R_avg_opp_SIG_STR_landed <- NULL
+ufc$B_avg_opp_SIG_STR_landed <- NULL
+ufc$R_avg_SIG_STR_att <- NULL
+ufc$B_avg_SIG_STR_att <- NULL
+ufc$R_avg_opp_HEAD_landed <- NULL
+ufc$B_avg_opp_HEAD_landed <- NULL
+ufc$R_avg_TD_att <- NULL
+ufc$B_avg_TD_att <- NULL
+ufc$R_avg_opp_TOTAL_STR_landed<- NULL
+ufc$B_avg_opp_TOTAL_STR_landed<- NULL
+ufc$R_avg_opp_TOTAL_STR_att<- NULL
+ufc$B_avg_opp_TOTAL_STR_att<- NULL
+ufc$R_avg_opp_GROUND_att<- NULL
+ufc$B_avg_opp_GROUND_att<- NULL
+ufc$R_avg_opp_LEG_landed<- NULL
+ufc$B_avg_opp_LEG_landed<- NULL
+ufc$R_avg_opp_BODY_landed<- NULL
+ufc$B_avg_opp_BODY_landed<- NULL
+ufc$R_avg_opp_GROUND_landed<- NULL
+ufc$B_avg_opp_GROUND_landed<- NULL
+ufc$R_avg_TOTAL_STR_landed<- NULL
+ufc$B_avg_TOTAL_STR_landed<- NULL
+ufc$R_avg_TOTAL_STR_att<- NULL
+ufc$B_avg_TOTAL_STR_att<- NULL
+ufc$R_avg_CLINCH_landed <- NULL
+ufc$B_avg_CLINCH_landed <- NULL
+ufc$R_avg_CLINCH_att<- NULL
+ufc$B_avg_CLINCH_att<- NULL
+ufc$R_avg_TD_pct <- NULL
+ufc$B_avg_TD_pct <- NULL
+ufc$R_avg_opp_TD_pct <- NULL
+ufc$B_avg_opp_TD_pct <- NULL
+ufc$R_avg_SIG_STR_pct<- NULL
+ufc$B_avg_SIG_STR_pct<- NULL
+ufc$R_avg_GROUND_landed  <- NULL
+ufc$B_avg_GROUND_landed  <- NULL
 
-#str(ufc) #Checking the differences
+ufc$R_avg_opp_DISTANCE_att<- NULL
+ufc$B_avg_opp_DISTANCE_att<- NULL
+
+#The main aspect of this project that we had to deal with was cleaning the data and understanding what variables could be predictive of winning.  Because we are examining this data from the standpoint of a gambler, we needed to understand what specific traits of fights were most important, and as such, could be overlooked by others for a money-making opportunity.  What we first realized was the difficulty of tackling this problem when the data was formatted in a per fighter format.  Because each fight is a match-up, we found it fair to assume that looking for differences was going to yield us the best model.  By converting some of our variables from per fighter to differences between fighters, we were able to better understand which stood out.  The most logical pertinent pertained to physical details about the fighters rather than their stats.  Examples include: age, weight and height.  After we did a multitude of conversions we then researched how betting in UFC works.  
+```
+
+####Data Cleaning With VIF STEP to Check For Collinearity and Delete Other ATT (Attempts)
+```{r Data Cleaning-VIF Step1}
+#Get rid of the rest of ATT:
+ufc$B_avg_BODY_att<-NULL
+ufc$B_avg_GROUND_att<-NULL
+ufc$B_avg_HEAD_att<-NULL
+ufc$B_avg_LEG_att<-NULL
+ufc$B_avg_SUB_ATT<-NULL
+ufc$B_avg_opp_BODY_att<-NULL
+ufc$B_avg_opp_CLINCH_att<-NULL
+ufc$B_avg_DISTANCE_att<-NULL
+ufc$B_avg_opp_HEAD_att<-NULL
+ufc$B_avg_opp_SIG_STR_att<-NULL
+ufc$B_avg_opp_SUB_ATT<-NULL
+ufc$B_avg_opp_TD_att<-NULL
+ufc$R_avg_BODY_att<-NULL
+ufc$R_avg_DISTANCE_att<-NULL
+ufc$R_avg_GROUND_att<-NULL
+ufc$R_avg_HEAD_att<-NULL
+ufc$R_avg_LEG_att<-NULL
+ufc$R_avg_SUB_ATT<-NULL
+ufc$R_avg_opp_BODY_att <-NULL           
+ufc$R_avg_opp_CLINCH_att<-NULL
+ufc$R_avg_opp_HEAD_att<-NULL
+ufc$R_avg_opp_LEG_att<-NULL
+ufc$R_avg_opp_SIG_STR_att<-NULL
+ufc$R_avg_opp_SUB_ATT<-NULL
+ufc$R_avg_opp_TD_att<-NULL
+
+#Betting online is more important about the number of landed punches, leg, or other shots landed as prop-bets compared to att. Thus, since att and landed are two different variables, but correlated we deleted the rest of att (attempts). We Initially kept the differences calculated above since we felt that those metrics mattered the most out of all the attempts.
+
+#We run VIF to check for collinearity. Did this in 3 frames first due to having issues if combined all at once. The summary of findings is at the bottom of the next chunk of code.
+hypothesisvif1 <- data.frame(Winner = ufc$Winner,                              
+      title_bout    = ufc$title_bout,               
+      no_of_rounds   = ufc$no_of_rounds,                    
+      B_current_lose_streak   = ufc$B_current_lose_streak,            
+      B_current_win_streak = ufc$B_current_win_streak,               
+      B_avg_BODY_landed   = ufc$B_avg_BODY_landed,              
+      B_avg_DISTANCE_landed   = ufc$B_avg_DISTANCE_landed,           
+      B_avg_HEAD_landed    = ufc$B_avg_HEAD_landed,              
+      B_avg_KD        = ufc$B_avg_KD,                   
+      B_avg_LEG_landed   = ufc$B_avg_LEG_landed,                
+      B_avg_PASS       = ufc$B_avg_PASS,                  
+      B_avg_REV          = ufc$B_avg_REV,                
+      B_avg_SIG_STR_landed   = ufc$B_avg_SIG_STR_landed,            
+      B_avg_TD_landed          = ufc$B_avg_TD_landed,          
+      B_longest_win_streak     = ufc$B_longest_win_streak,          
+      B_losses                 = ufc$B_losses,          
+      B_avg_opp_CLINCH_landed  = ufc$B_avg_opp_CLINCH_landed,          
+      B_avg_opp_DISTANCE_landed   = ufc$B_avg_opp_DISTANCE_landed,       
+      B_avg_opp_KD     = ufc$B_avg_opp_KD
+)
+
+hypothesisvif2<-data.frame(B_avg_opp_LEG_att   = ufc$B_avg_opp_LEG_att,               
+      B_avg_opp_PASS  = ufc$B_avg_opp_PASS,                   
+      B_avg_opp_REV    = ufc$B_avg_opp_REV,                  
+      B_avg_opp_SIG_STR_pct  = ufc$B_avg_opp_SIG_STR_pct,           
+      B_avg_opp_TD_landed   = ufc$B_avg_opp_TD_landed,             
+      B_total_rounds_fought   = ufc$B_total_rounds_fought,            
+      B_total_time_fought.seconds.  = ufc$B_total_time_fought.seconds.,   
+      B_total_title_bouts   = ufc$B_total_title_bouts,             
+      B_win_by_Decision_Majority  = ufc$B_win_by_Decision_Majority,        
+      B_win_by_Decision_Split     = ufc$B_win_by_Decision_Split,       
+      B_win_by_Decision_Unanimous   = ufc$B_win_by_Decision_Unanimous,     
+      B_win_by_KO.TKO           = ufc$B_win_by_KO.TKO,         
+      B_win_by_Submission   = ufc$B_win_by_Submission,             
+      B_win_by_TKO_Doctor_Stoppage   = ufc$B_win_by_TKO_Doctor_Stoppage,  
+      B_wins                        = ufc$B_wins,      
+      R_current_lose_streak    = ufc$R_current_lose_streak,          
+      R_current_win_streak = ufc$R_current_win_streak,              
+      R_avg_BODY_landed    = ufc$R_avg_BODY_landed,                        
+      R_avg_DISTANCE_landed    = ufc$R_avg_DISTANCE_landed,          
+      R_avg_HEAD_landed     = ufc$R_avg_HEAD_landed,             
+      R_avg_KD            = ufc$R_avg_KD,                
+      R_avg_LEG_landed    = ufc$R_avg_LEG_landed,               
+      R_avg_PASS          = ufc$R_avg_PASS,                
+      R_avg_REV            = ufc$R_avg_REV,               
+      R_avg_SIG_STR_landed   = ufc$R_avg_SIG_STR_landed,            
+      R_avg_TD_landed         = ufc$R_avg_TD_landed,           
+      R_longest_win_streak  = ufc$R_longest_win_streak,             
+      R_losses             = ufc$R_losses,              
+      R_avg_opp_CLINCH_landed   = ufc$R_avg_opp_CLINCH_landed,         
+      R_avg_opp_DISTANCE_landed  = ufc$R_avg_opp_DISTANCE_landed,        
+      R_avg_opp_KD        = ufc$R_avg_opp_KD,              
+      R_avg_opp_PASS     = ufc$R_avg_opp_PASS,                
+      R_avg_opp_REV    = ufc$R_avg_opp_REV,                  
+      R_avg_opp_SIG_STR_pct   = ufc$R_avg_opp_SIG_STR_pct           
+     )
+
+hypothesisvif3<- data.frame(R_avg_opp_TD_landed    = ufc$R_avg_opp_TD_landed,            
+      R_total_rounds_fought   = ufc$R_total_rounds_fought,          
+      R_total_time_fought.seconds. = ufc$R_total_time_fought.seconds.,     
+      R_total_title_bouts          = ufc$R_total_title_bouts,      
+      R_win_by_Decision_Majority  = ufc$R_win_by_Decision_Majority,      
+      R_win_by_Decision_Split      = ufc$R_win_by_Decision_Split,     
+      R_win_by_Decision_Unanimous   = ufc$R_win_by_Decision_Unanimous,     
+      R_win_by_KO.TKO             = ufc$R_win_by_KO.TKO,       
+      R_win_by_Submission         = ufc$R_win_by_Submission,       
+      R_win_by_TKO_Doctor_Stoppage  = ufc$R_win_by_TKO_Doctor_Stoppage,    
+      R_wins    = ufc$R_wins,        
+      weight_class_Bantamweight   = ufc$weight_class_Bantamweight,        
+      weight_class_Featherweight    = ufc$weight_class_Featherweight,     
+      weight_class_Flyweight       = ufc$weight_class_Flyweight, 
+      weight_class_Heavyweight     = ufc$weight_class_Heavyweight,      
+      weight_class_Light.Heavyweight  = ufc$weight_class_Light.Heavyweight,
+      weight_class_Lightweight   = ufc$weight_class_Lightweight,        
+      weight_class_Middleweight  = ufc$weight_class_Middleweight,        
+      weight_class_Open.Weight   = ufc$weight_class_Open.Weight,        
+      weight_class_Welterweight  = ufc$weight_class_Welterweight,        
+      B_Stance_Open.Stance    = ufc$B_Stance_Open.Stance,           
+      B_Stance_Orthodox    = ufc$B_Stance_Orthodox,              
+      B_Stance_Sideways    = ufc$B_Stance_Sideways,              
+      B_Stance_Southpaw  = ufc$B_Stance_Southpaw,                
+      B_Stance_Switch     = ufc$B_Stance_Switch,               
+      R_Stance_Open.Stance  = ufc$R_Stance_Open.Stance,             
+      R_Stance_Orthodox      = ufc$R_Stance_Orthodox,           
+      R_Stance_Southpaw   = ufc$R_Stance_Southpaw,               
+      R_Stance_Switch       = ufc$R_Stance_Switch,            
+      difference_height   = ufc$difference_height,               
+      difference_reach   = ufc$difference_reach,                
+      difference_age   = ufc$difference_age,                  
+      difference_weight  = ufc$difference_weight,                
+      difference_avg_opp_SIG_STR_landed=ufc$difference_avg_opp_SIG_STR_landed,
+      difference_avg_SIG_STR_att    = ufc$difference_avg_SIG_STR_att,     
+      difference_avg_opp_TOTAL_STR_landed=ufc$difference_avg_opp_TOTAL_STR_landed, 
+      difference_avg_opp_TOTAL_STR_att=ufc$difference_avg_opp_TOTAL_STR_att, 
+      difference_avg_TOTAL_STR_landed=ufc$difference_avg_TOTAL_STR_landed,   
+      difference_avg_TOTAL_STR_att     = ufc$difference_avg_TOTAL_STR_att,
+      difference_avg_SIG_STR_pct     = ufc$difference_avg_SIG_STR_pct,    
+      difference_avg_opp_head_landed  = ufc$difference_avg_opp_head_landed,
+      difference_avg_TD_att        = ufc$difference_avg_TD_att,      
+      difference_avg_TD_pct   = ufc$difference_avg_TD_pct,           
+      difference_avg_opp_TD_pct    = ufc$difference_avg_opp_TD_pct,      
+      difference_avg_opp_GROUND_att   = ufc$difference_avg_opp_GROUND_att,
+      difference_avg_opp_GROUND_landed= ufc$difference_avg_opp_GROUND_landed,
+      difference_avg_GROUND_landed    = ufc$difference_avg_GROUND_landed,
+      difference_avg_opp_LEG_landed    = ufc$difference_avg_opp_LEG_landed,
+      difference_avg_opp_BODY_landed  = ufc$difference_avg_opp_BODY_landed,
+      difference_avg_CLINCH_landed = ufc$difference_avg_CLINCH_landed,    
+      difference_avg_CLINCH_att=ufc$difference_avg_CLINCH_att,     
+      difference_avg_opp_DISTANCE_att=ufc$difference_avg_opp_DISTANCE_att
+)
+
+v1<-vifstep(as.matrix(hypothesisvif1[,c(2:19)]), th=10) #th is a threshold
+v2<-vifstep(as.matrix(hypothesisvif2), th=10) #th is a threshold
+v3<-vifstep(as.matrix(hypothesisvif3), th=10) #th is a threshold
+
+#v1
+#Issues From V1:
+ufc$B_avg_BODY_landed<-NULL
+ufc$B_avg_SIG_STR_landed<-NULL 
+
+
+#v2
+ufc$R_avg_BODY_landed <-NULL
+ufc$B_wins <-NULL
+ufc$R_avg_SIG_STR_landed <-NULL
+ufc$B_total_rounds_fought <-NULL
+ufc$R_draw<-NULL
+ufc$B_draw<-NULL
+
+#v3
+#weight_class_Bantamweight Kept since used to split weight classes
+ufc$B_Stance_Open.Stance <-NULL
+ufc$R_Stance_Open.Stance <-NULL
+ufc$difference_avg_opp_SIG_STR_landed<-NULL 
+ufc$R_wins <-NULL
+ufc$B_Stance_Orthodox<-NULL 
+ufc$difference_avg_opp_TOTAL_STR_att<-NULL 
+ufc$difference_avg_TOTAL_STR_att <-NULL
+ufc$R_Stance_Orthodox <-NULL
+ufc$difference_avg_CLINCH_att<-NULL 
+ufc$difference_avg_opp_GROUND_landed<-NULL 
+ufc$R_total_rounds_fought <-NULL
+```
+
+####Combined VIF STEP
+```{r Final VIF}
+hypothesisv4 <- data.frame(Winner = ufc$Winner,                                  
+      R_avg_opp_TD_landed    = ufc$R_avg_opp_TD_landed,            
+      R_total_time_fought.seconds. = ufc$R_total_time_fought.seconds.,     
+      R_total_title_bouts          = ufc$R_total_title_bouts,      
+      R_win_by_Decision_Majority  = ufc$R_win_by_Decision_Majority,      
+      R_win_by_Decision_Split      = ufc$R_win_by_Decision_Split,     
+      R_win_by_Decision_Unanimous   = ufc$R_win_by_Decision_Unanimous,     
+      R_win_by_KO.TKO             = ufc$R_win_by_KO.TKO,       
+      R_win_by_Submission         = ufc$R_win_by_Submission,       
+      R_win_by_TKO_Doctor_Stoppage  = ufc$R_win_by_TKO_Doctor_Stoppage,    
+      weight_class_Featherweight    = ufc$weight_class_Featherweight,     
+      weight_class_Flyweight       = ufc$weight_class_Flyweight, 
+      weight_class_Heavyweight     = ufc$weight_class_Heavyweight,      
+      weight_class_Light.Heavyweight  = ufc$weight_class_Light.Heavyweight,
+      weight_class_Lightweight   = ufc$weight_class_Lightweight,        
+      weight_class_Middleweight  = ufc$weight_class_Middleweight,        
+      weight_class_Open.Weight   = ufc$weight_class_Open.Weight,        
+      weight_class_Welterweight  = ufc$weight_class_Welterweight,        
+      B_Stance_Sideways    = ufc$B_Stance_Sideways,              
+      B_Stance_Southpaw  = ufc$B_Stance_Southpaw,                
+      B_Stance_Switch     = ufc$B_Stance_Switch,               
+      R_Stance_Southpaw   = ufc$R_Stance_Southpaw,               
+      R_Stance_Switch       = ufc$R_Stance_Switch,            
+      difference_height   = ufc$difference_height,               
+      difference_reach   = ufc$difference_reach,                
+      difference_age   = ufc$difference_age,                  
+      difference_weight  = ufc$difference_weight,                
+      difference_avg_SIG_STR_att    = ufc$difference_avg_SIG_STR_att,     
+      difference_avg_opp_TOTAL_STR_landed=ufc$difference_avg_opp_TOTAL_STR_landed, 
+      difference_avg_TOTAL_STR_landed=ufc$difference_avg_TOTAL_STR_landed,  
+      difference_avg_SIG_STR_pct     = ufc$difference_avg_SIG_STR_pct,    
+      difference_avg_opp_head_landed  = ufc$difference_avg_opp_head_landed,
+      difference_avg_TD_att        = ufc$difference_avg_TD_att,      
+      difference_avg_TD_pct   = ufc$difference_avg_TD_pct,           
+      difference_avg_opp_TD_pct    = ufc$difference_avg_opp_TD_pct,      
+      difference_avg_opp_GROUND_att   = ufc$difference_avg_opp_GROUND_att,
+      difference_avg_GROUND_landed    = ufc$difference_avg_GROUND_landed,
+      difference_avg_opp_LEG_landed    = ufc$difference_avg_opp_LEG_landed,
+      difference_avg_opp_BODY_landed  = ufc$difference_avg_opp_BODY_landed,
+      difference_avg_CLINCH_landed = ufc$difference_avg_CLINCH_landed,    
+      difference_avg_opp_DISTANCE_att=ufc$difference_avg_opp_DISTANCE_att,       
+      B_avg_opp_LEG_att   = ufc$B_avg_opp_LEG_att,               
+      B_avg_opp_PASS  = ufc$B_avg_opp_PASS,                   
+      B_avg_opp_REV    = ufc$B_avg_opp_REV,                  
+      B_avg_opp_SIG_STR_pct  = ufc$B_avg_opp_SIG_STR_pct,           
+      B_avg_opp_TD_landed   = ufc$B_avg_opp_TD_landed,             
+      B_total_time_fought.seconds.  = ufc$B_total_time_fought.seconds.,   
+      B_total_title_bouts   = ufc$B_total_title_bouts,             
+      B_win_by_Decision_Majority  = ufc$B_win_by_Decision_Majority,        
+      B_win_by_Decision_Split     = ufc$B_win_by_Decision_Split,       
+      B_win_by_Decision_Unanimous   = ufc$B_win_by_Decision_Unanimous,     
+      B_win_by_KO.TKO           = ufc$B_win_by_KO.TKO,         
+      B_win_by_Submission   = ufc$B_win_by_Submission,             
+      B_win_by_TKO_Doctor_Stoppage   = ufc$B_win_by_TKO_Doctor_Stoppage,  
+      R_current_lose_streak    = ufc$R_current_lose_streak,          
+      R_current_win_streak = ufc$R_current_win_streak,              
+      R_avg_DISTANCE_landed    = ufc$R_avg_DISTANCE_landed,          
+      R_avg_HEAD_landed     = ufc$R_avg_HEAD_landed,             
+      R_avg_KD            = ufc$R_avg_KD,                
+      R_avg_LEG_landed    = ufc$R_avg_LEG_landed,               
+      R_avg_PASS          = ufc$R_avg_PASS,                
+      R_avg_REV            = ufc$R_avg_REV,               
+      R_avg_TD_landed         = ufc$R_avg_TD_landed,           
+      R_longest_win_streak  = ufc$R_longest_win_streak,             
+      R_losses             = ufc$R_losses,              
+      R_avg_opp_CLINCH_landed   = ufc$R_avg_opp_CLINCH_landed,         
+      R_avg_opp_DISTANCE_landed  = ufc$R_avg_opp_DISTANCE_landed,        
+      R_avg_opp_KD        = ufc$R_avg_opp_KD,              
+      R_avg_opp_PASS     = ufc$R_avg_opp_PASS,                
+      R_avg_opp_REV    = ufc$R_avg_opp_REV,                  
+      R_avg_opp_SIG_STR_pct   = ufc$R_avg_opp_SIG_STR_pct,  
+      title_bout    = ufc$title_bout,               
+      no_of_rounds   = ufc$no_of_rounds,                    
+      B_current_lose_streak   = ufc$B_current_lose_streak,            
+      B_current_win_streak = ufc$B_current_win_streak,               
+      B_avg_DISTANCE_landed   = ufc$B_avg_DISTANCE_landed,           
+      B_avg_HEAD_landed    = ufc$B_avg_HEAD_landed,              
+      B_avg_KD        = ufc$B_avg_KD,                   
+      B_avg_LEG_landed   = ufc$B_avg_LEG_landed,                
+      B_avg_PASS       = ufc$B_avg_PASS,                  
+      B_avg_REV          = ufc$B_avg_REV,                
+      B_avg_TD_landed          = ufc$B_avg_TD_landed,          
+      B_longest_win_streak     = ufc$B_longest_win_streak,          
+      B_losses                 = ufc$B_losses,          
+      B_avg_opp_CLINCH_landed  = ufc$B_avg_opp_CLINCH_landed,          
+      B_avg_opp_DISTANCE_landed   = ufc$B_avg_opp_DISTANCE_landed,       
+      B_avg_opp_KD     = ufc$B_avg_opp_KD                   
+)
+
+v4<-vifstep(as.matrix(hypothesisv4[,c(2:ncol(hypothesisv4))]), th=7) #th is a threshold
+#v4
+#Ones Identified:
+ufc$B_avg_opp_DISTANCE_landed<-NULL
+ufc$B_avg_DISTANCE_landed<-NULL
+ufc$R_avg_DISTANCE_landed<-NULL
+ufc$difference_avg_opp_DISTANCE_att<-NULL
+ufc$difference_avg_SIG_STR_att<-NULL
+
+#However, to make sure our methodology was not overlooking collinerated variables, we decided to run VIF Step functions to test for collinearity.  We ran a few different versions, gradually trying to discover the problems in the new data set.  In our first VIF we eliminated: B_avg_BODY_landed and B_avg_SIG_STR_landed.  In our second, we eliminated r_avg_body_landed, B_wins, R_avg_SIG_STR_landed, B_total_rounds_fought, R_draw and B_draw.  In our third we eliminated another batch of 11 variables.  Finally, in our fourth we eliminated 5 more that showed signs of collinearity.  
 ```
 
 ####Cleaning and Normalizing the Data
 ```{r Cleaning}
 #Remove all the Columns that just have 0's:
 ufc<-ufc[, colSums(ufc != 0) > 0]
-
 #Step 3(A): Randomize and Normalize the Data: Thus all algorithms will work
 set.seed(123) #To make sure that the models are consistent
 ufc_r<- ufc[sample(nrow(ufc)),] #selecting every row and column
-
 ufc_mm<-as.data.frame(model.matrix(~ . -1, data=ufc_r)) #Gets rid of all factors
-
 #summary(ufc_mm) #Commented-out for reading-ease
-
 normalize <- function(x) { 
   return((x - min(x)) / (max(x) - min(x)))
 }
-
 ufc_n<-as.data.frame(lapply(ufc_mm, normalize)) #Makes all the data between 0-1 for comparison
 
-# summary(ufc_n) #Commented-out for reading-ease
+#After getting rid of the variables we needed to, we needed to proceed by cleaning and normalizing the data.  We set a seed to make models consistent, and then followed standard randomizing and normalizing procedure.
+
+```
 
 
-cut1<-glm(Winner~., data=ufc_n)
-summary(cut1)
+####Making New Data Set and Running GLM:
+```{r Testing Our Knowledge of Boxing}
+#Testing Hypothesis with ALL Differences (Not Nulled out above):
 
-#Realized that there were NA's due to most likely correlation
+glmhypothesis <- data.frame( Winner = ufc_n$Winner,
+                         difference_height = ufc_n$difference_height,
+                         difference_reach = ufc_n$difference_reach,
+                         difference_age = ufc_n$difference_age,
+                         difference_weight = ufc_n$difference_weight,
+                         difference_avg_opp_TOTAL_STR_landed = ufc_n$difference_avg_opp_TOTAL_STR_landed,
+                         difference_avg_TOTAL_STR_landed = ufc_n$difference_avg_TOTAL_STR_landed,
+                         difference_avg_SIG_STR_pct = ufc_n$difference_avg_SIG_STR_pct,
+                         difference_avg_opp_head_landed =ufc_n$difference_avg_opp_head_landed,
+                         difference_avg_TD_att = ufc_n$difference_avg_TD_att,
+                         difference_avg_TD_pct = ufc_n$difference_avg_TD_pct,
+                         difference_avg_opp_TD_pct = ufc_n$difference_avg_opp_TD_pct,
+                         difference_avg_opp_GROUND_att = ufc_n$difference_avg_opp_GROUND_att,
+                         difference_avg_GROUND_landed = ufc_n$difference_avg_GROUND_landed,
+                         difference_avg_opp_LEG_landed = ufc_n$difference_avg_opp_LEG_landed,
+                         difference_avg_opp_BODY_landed = ufc_n$difference_avg_opp_BODY_landed,
+                         difference_avg_CLINCH_landed = ufc_n$difference_avg_CLINCH_landed
+                       )
 
-hypothesis <- data.frame( 
-       B_avg_LEG_att = ufc_n$B_avg_LEG_att,
-       B_avg_LEG_landed = ufc_n$B_avg_LEG_landed ,
-       B_avg_opp_LEG_att = ufc_n$B_avg_opp_LEG_att,
-       B_avg_opp_LEG_landed = ufc_n$B_avg_opp_LEG_landed,
-       B_avg_SIG_STR_att = ufc_n$B_avg_SIG_STR_att,
-       B_avg_SIG_STR_landed = ufc_n$B_avg_SIG_STR_landed,
-       B_avg_opp_SIG_STR_att = ufc_n$B_avg_opp_SIG_STR_att,
-       B_Stance_Switch = ufc_n$B_Stance_Switch,
-       R_avg_LEG_att = ufc_n$R_avg_LEG_att,
-       R_avg_LEG_landed = ufc_n$R_avg_LEG_landed ,
-       R_avg_opp_LEG_att = ufc_n$R_avg_opp_LEG_att,
-       R_avg_opp_LEG_landed = ufc_n$R_avg_opp_LEG_landed,
-       R_avg_SIG_STR_att = ufc_n$R_avg_SIG_STR_att,
-       R_avg_SIG_STR_landed = ufc_n$R_avg_SIG_STR_landed,
-       R_avg_opp_SIG_STR_att = ufc_n$R_avg_opp_SIG_STR_att,
-       R_Stance_Switch = ufc_n$R_Stance_Switch
-       )
+#str(glmhypothesis)
 
-hypothesis.cor <- round(cor((hypothesis)),1)
+model1<-glm(Winner~., data=glmhypothesis, family = "binomial")
+#summary(model1)
 
-corrplot(hypothesis.cor) 
-#As you can see the Att and Landed are very highly correlated for the fighters. So is whether the fights fight with a switch stance. Since gambling can have prop bets we are going to NULL the ATT and keep the landed. We will NUll the R Switch, since they are the favorite and we want to see what can make the underdog win, since better gambling reward.
+#AIC 4117
 
-ufc_n$B_avg_LEG_att<-NULL
-ufc_n$B_avg_opp_LEG_att<-NULL
-ufc_n$B_avg_SIG_STR_att<-NULL
-ufc_n$B_avg_opp_SIG_STR_att<-NULL
-ufc_n$R_avg_LEG_att<-NULL
-ufc_n$R_avg_opp_LEG_att<-NULL
-ufc_n$R_avg_SIG_STR_att<-NULL
-ufc_n$R_avg_opp_SIG_STR_att<-NULL
-ufc_n$R_Stance_Switch<-NULL
+#Testing Hypothesis with no att:
 
-#Another Data frame to see the new interactions
-hypothesis_2 <- data.frame( 
-       B_avg_LEG_landed = ufc_n$B_avg_LEG_landed ,
-       B_avg_opp_LEG_landed = ufc_n$B_avg_opp_LEG_landed,
-       B_avg_SIG_STR_landed = ufc_n$B_avg_SIG_STR_landed,
-       B_avg_opp_SIG_STR_landed = ufc_n$B_avg_opp_SIG_STR_landed,    
-       B_Stance_Switch = ufc_n$B_Stance_Switch,
-       R_avg_LEG_landed = ufc_n$R_avg_LEG_landed ,
-       R_avg_opp_LEG_landed = ufc_n$R_avg_opp_LEG_landed,
-       R_avg_SIG_STR_landed = ufc_n$R_avg_SIG_STR_landed,
-       R_avg_opp_SIG_STR_landed = ufc_n$R_avg_opp_SIG_STR_landed
-       )
+glmhypothesis2 <- data.frame( Winner = ufc_n$Winner,
+                         difference_height = ufc_n$difference_height,
+                         difference_reach = ufc_n$difference_reach,
+                         difference_age = ufc_n$difference_age,
+                         difference_weight = ufc_n$difference_weight,
+                         difference_avg_opp_TOTAL_STR_landed = ufc_n$difference_avg_opp_TOTAL_STR_landed,
+                         difference_avg_TOTAL_STR_landed = ufc_n$difference_avg_TOTAL_STR_landed,
+                         difference_avg_SIG_STR_pct = ufc_n$difference_avg_SIG_STR_pct,
+                         difference_avg_opp_head_landed =ufc_n$difference_avg_opp_head_landed,
+                         difference_avg_TD_pct = ufc_n$difference_avg_TD_pct,
+                         difference_avg_opp_TD_pct = ufc_n$difference_avg_opp_TD_pct,
+                         difference_avg_GROUND_landed = ufc_n$difference_avg_GROUND_landed,
+                         difference_avg_opp_LEG_landed = ufc_n$difference_avg_opp_LEG_landed,
+                         difference_avg_opp_BODY_landed = ufc_n$difference_avg_opp_BODY_landed,
+                         difference_avg_CLINCH_landed = ufc_n$difference_avg_CLINCH_landed
+                       )
 
-hypothesis.cor2 <- round(cor((hypothesis_2)),1)
-corrplot(hypothesis.cor2) #Looking better
+model2<-glm(Winner~., data=glmhypothesis2, family = "binomial")
+#summary(model2)
 
-#Run GLM model again and see results
-cut2<-glm(Winner~., data=ufc_n)
-summary(cut2)
+#AIC 4133
 
-####I am confused after this step why there are still NA's please help
+#Testing Hypothesis with no att - Narrowed Down:
 
-#Need to Null More due to Correlation. Deleting SIG_STR, since the percentage column is working and that is what we will base off-of. Also, deleted opponets 
-#ufc_n$B_avg_SIG_STR_landed<-NULL #Needed to 
-#ufc_n$R_avg_SIG_STR_landed<-NULL
-#ufc_n$B_avg_opp_SIG_STR_landed<-NULL
-#ufc_n$R_avg_opp_SIG_STR_landed<-NULL
-#ufc_n$B_avg_opp_LEG_landed<-NULL
-#ufc_n$R_avg_opp_LEG_landed<-NULL
+glmhypothesis3 <- data.frame( Winner = ufc_n$Winner,
+                         difference_height = ufc_n$difference_height,
+                         difference_reach = ufc_n$difference_reach,
+                         difference_age = ufc_n$difference_age,
+                         difference_avg_opp_head_landed =ufc_n$difference_avg_opp_head_landed,
+                         difference_avg_opp_TD_pct = ufc_n$difference_avg_opp_TD_pct,
+                         difference_avg_opp_LEG_landed = ufc_n$difference_avg_opp_LEG_landed,
+                         difference_avg_opp_BODY_landed = ufc_n$difference_avg_opp_BODY_landed,
+                         difference_avg_CLINCH_landed = ufc_n$difference_avg_CLINCH_landed
 
-#Anyone got any ideas what is going on still?
+                       )
+
+model3<-glm(Winner~., data=glmhypothesis3, family = "binomial")
+#summary(model3)
+
+# AIC 4137
+
+#We first tried our own-hand at finding the optimal variables for data-selection and we minimized AIC at 4117 with hypothesis 1. Next we will see what the computer can do.
+```
+
+
+#### Running GLM Model to reduce Variables
+```{r GLM Model-Computer Version for Data Cleaning}
+model<-lm(Winner~., data=ufc_n)
+#summary(model)
+
+#computerglm<-olsmodel<-ols_step_forward_aic(model, progress = FALSE)
+
+#plot(computerglm)
+
+#This shows us the most important variables as they each decrease the AIC. We will pull the top 10 to have the largest impact.
+
+#Use the Top 10 of AIC from  OLS Model
+#And Top 7 that our team thought most important from above
+
+glmmodel<-glm(Winner~ difference_age + R_avg_opp_DISTANCE_landed+ B_avg_HEAD_landed + R_losses +difference_avg_TD_att + R_avg_opp_SIG_STR_pct+ R_total_title_bouts + difference_avg_opp_TOTAL_STR_landed+ R_win_by_Decision_Split + title_bout +  difference_reach+difference_height+difference_avg_opp_TD_pct + difference_avg_opp_head_landed + difference_avg_CLINCH_landed+ difference_weight+difference_avg_GROUND_landed, data=ufc_n, family="binomial" )
+#summary(glmmodel)
+
+#AIC of 3943
+
+#The computer was able to beat us with an AIC of 3943. Next we will cheat for correlation with this data set.
+```
+
+
+####Making the final dataset to run through models
+```{r Final Data Set}
+data_final1 <- data.frame( Winner = ufc_n$Winner,
+                         difference_age = ufc_n$difference_age,
+                         R_avg_opp_DISTANCE_landed=ufc_n$R_avg_opp_DISTANCE_landed,
+                         B_avg_HEAD_landed=ufc_n$B_avg_HEAD_landed,
+                         R_losses=ufc_n$R_losses,
+                         difference_avg_TD_att = ufc_n$difference_avg_TD_att,
+                         R_avg_opp_SIG_STR_pct=ufc_n$R_avg_opp_SIG_STR_pct,
+                         R_total_title_bouts=ufc_n$R_total_title_bouts,
+                         difference_avg_opp_TOTAL_STR_landed=ufc_n$difference_avg_opp_TOTAL_STR_landed,
+                         R_win_by_Decision_Split=ufc_n$R_win_by_Decision_Split,
+                         title_bout=ufc_n$title_bout,
+                         no_of_rounds=ufc_n$no_of_rounds,
+                         difference_height = ufc_n$difference_height,
+                         difference_reach = ufc_n$difference_reach,
+                         difference_weight=ufc_n$difference_weight,
+                         difference_avg_GROUND_landed = ufc_n$difference_avg_GROUND_landed,
+                         difference_avg_opp_TD_pct=ufc_n$difference_avg_opp_TD_pct,
+                         difference_avg_opp_head_landed=ufc_n$difference_avg_opp_head_landed, 
+                         difference_avg_CLINCH_landed=ufc_n$difference_avg_CLINCH_landed,
+                         weight_class_Flyweight=ufc_n$weight_class_Flyweight,                
+                         weight_class_Bantamweight=ufc_n$weight_class_Bantamweight, 
+                         weight_class_Featherweight=ufc_n$weight_class_Featherweight,
+                        weight_class_Lightweight=ufc_n$weight_class_Lightweight,  
+                        weight_class_Welterweight=ufc_n$weight_class_Welterweight, 
+                        weight_class_Middleweight=ufc_n$weight_class_Middleweight,                                         weight_class_Light.Heavyweight=ufc_n$weight_class_Light.Heavyweight, 
+                        weight_class_Heavyweight=ufc_n$weight_class_Heavyweight
+                       )
+
+data_final_cor1 <- round(cor((data_final1[,1:9])),1)
+data_final_cor2 <- round(cor((data_final1[,10:18])),1)
+corrplot(data_final_cor1)
+corrplot(data_final_cor2)
+
+#Correlation seems to show some issues. There is some correlation, between number of rounds vs title bout and height vs reach. We took out title bouts since that is partially already captured by R_total_title_bouts. We took out difference_reach since we felt that height was more important due fighting styles and weight also having influence coming from height.
+
+glmmodel2<-glm(Winner~ difference_age + R_avg_opp_DISTANCE_landed+ B_avg_HEAD_landed + R_losses +difference_avg_TD_att + R_avg_opp_SIG_STR_pct+ R_total_title_bouts + difference_avg_opp_TOTAL_STR_landed+ R_win_by_Decision_Split+no_of_rounds+difference_height+difference_avg_opp_TD_pct + difference_avg_opp_head_landed + difference_avg_CLINCH_landed+ difference_weight+difference_avg_GROUND_landed, data=ufc_n, family="binomial" )
+#summary(glmmodel2)
+
+#AIC 3970 With No correlation issues- This will become final data set.
+
+data_final_final <- data.frame( Winner = ufc_n$Winner,
+                         difference_age = ufc_n$difference_age,
+                         R_avg_opp_DISTANCE_landed=ufc_n$R_avg_opp_DISTANCE_landed,
+                         B_avg_HEAD_landed=ufc_n$B_avg_HEAD_landed,
+                         R_losses=ufc_n$R_losses,
+                         difference_avg_TD_att = ufc_n$difference_avg_TD_att,
+                         R_avg_opp_SIG_STR_pct=ufc_n$R_avg_opp_SIG_STR_pct,
+                         R_total_title_bouts=ufc_n$R_total_title_bouts,
+                         difference_avg_opp_TOTAL_STR_landed=ufc_n$difference_avg_opp_TOTAL_STR_landed,
+                         R_win_by_Decision_Split=ufc_n$R_win_by_Decision_Split,
+                         no_of_rounds=ufc_n$no_of_rounds,
+                         difference_height = ufc_n$difference_height,
+                         difference_weight=ufc_n$difference_weight,
+                         difference_avg_GROUND_landed = ufc_n$difference_avg_GROUND_landed,
+                         difference_avg_opp_TD_pct=ufc_n$difference_avg_opp_TD_pct,
+                         difference_avg_opp_head_landed=ufc_n$difference_avg_opp_head_landed, 
+                         difference_avg_CLINCH_landed=ufc_n$difference_avg_CLINCH_landed,
+                         weight_class_Flyweight=ufc_n$weight_class_Flyweight,                
+                         weight_class_Bantamweight=ufc_n$weight_class_Bantamweight, 
+                         weight_class_Featherweight=ufc_n$weight_class_Featherweight,
+                        weight_class_Lightweight=ufc_n$weight_class_Lightweight,  
+                        weight_class_Welterweight=ufc_n$weight_class_Welterweight, 
+                        weight_class_Middleweight=ufc_n$weight_class_Middleweight,                                weight_class_Light.Heavyweight=ufc_n$weight_class_Light.Heavyweight, 
+                        weight_class_Heavyweight=ufc_n$weight_class_Heavyweight
+                       )
+
+ufc_n<-data_final_final #This command sets the ufc_n to only include the variables that throrugh computer and self-selection we believe are the most relevant to betting on UFC fights.
+
+#summary(ufc_n)
+
+#In summary of the three above code chunks: We ran numerous GLM models with the goal of minimizing our AIC to try and get a dataset that had a sufficient number of predictive variables.  After running a few different iterations seeing how utilizing only differences would pan out, we then used an OLS to do a final refinement.  After using the best variables from the OLS, we got a GLM with our lowest AIC of around 3950. We found most significant variables (after correlation deletion of two) to be differences in age, R_avg_opp_distance_landed, B_avg_head_landed, R_losses, differences_age_TD_att, R_avg_opp_SIG_STR_pct, R_total_title_bouts, R_win_by_decision_split and difference_avg_opp_TD_pct.  This model resulted in the creation of our final data set to be used in subsequent models.
 ```
 
 #####Dividing the Normalized Data into Various Classes
 ```{r Dividing by classes}
 #Creating different weight classes for guys
-
-ufc_under_145<- filter(ufc_n, weight_class_Flyweight==1 | weight_class_Bantamweight==1 | weight_class_Featherweight==1)
-ufc_155_to_185<- filter(ufc_n, weight_class_Lightweight==1 | weight_class_Welterweight==1 | weight_class_Middleweight==1)
-ufc_over_185<- filter(ufc_n, weight_class_Light.Heavyweight==1 | weight_class_Heavyweight==1)
-#summary(ufc_under_145) #Data exploration
-#str(ufc_under_145) #Data exploration
-#summary(ufc_155_to_185) #Data exploration
-#str(ufc_155_to_185) #Data exploration
-#summary(ufc_over_185) #Data exploration
-#str(ufc_over_185) #Data exploration
-
-
+ufc_under_165<- filter(ufc_n, weight_class_Flyweight==1 | weight_class_Bantamweight==1 | weight_class_Featherweight==1| weight_class_Lightweight==1 )
+ufc_over_165<- filter(ufc_n, weight_class_Light.Heavyweight==1 | weight_class_Heavyweight==1| weight_class_Middleweight==1|weight_class_Welterweight==1)
+#summary(ufc_under_165) #Data exploration
+#str(ufc_under_165) #Data exploration
+#summary(ufc_over_165) #Data exploration
+#str(ufc_over_165) #Data exploration
 #Removing Columns that only have 0's (blanks):
-ufc_under_145<-ufc_under_145[, colSums(ufc_under_145 != 0) > 0]
-ufc_155_to_185<-ufc_155_to_185[, colSums(ufc_155_to_185 != 0) > 0]
-ufc_over_185<-ufc_over_185[, colSums(ufc_over_185 != 0) > 0]
+ufc_under_165<-ufc_under_165[, colSums(ufc_under_165 != 0) > 0]
+ufc_over_165<-ufc_over_165[, colSums(ufc_over_165 != 0) > 0]
+
+#Based on the aforementioned information about differences by weight class, we thought that we would optimize our models by running them on different weight classes.   This is because based on research we have found that different variables become more or less important based on these distinctions.
 ```
 
 ####Train and Test Datasets
 ```{r Creating the Test and Train Datasets }
-
 #Looking at str to find the number of rows and where the Y Variable is located. Using 20% for test data
-#str(ufc_under_145) #727 data rows: 20%=146 & column 1= Y Variable
-#str(ufc_155_to_185) #1917 data rows: 20%=384 & column 1= Y Variable
-#str(ufc_over_185) #688 data rows: 20%=138 & column 1= Y Variable
+#str(ufc_under_165) #1430 data rows: 20%=286 & column 1= Y Variable
+#str(ufc_over_165) #1902 data rows: 20%=381 & column 1= Y Variable
+#str(ufc_n) #3367 rows: 20%=674  and column 1= Y variable
+#KNN=Need Labels Seperated out
+ufc_train_KNN<-ufc_n[675:nrow(ufc_n),-1]
+ufc_train_labels_KNN<-ufc_n[675:nrow(ufc_n),1]
+ufc_test_KNN<-ufc_n[1:674,-1] 
+ufc_test_labels_KNN<-ufc_n[1:674,1]
+#ANN and SVM Keep Labels in the Data 
+ufc_train<-ufc_n[675:nrow(ufc_n),]
+ufc_test<-ufc_n[1:674,]
+#KNN=Need Labels Seperated out for Under 165
+ufc_under_165_train_KNN<-ufc_under_165[287:nrow(ufc_under_165),-1]
+ufc_under_165_train_labels_KNN<-ufc_under_165[287:nrow(ufc_under_165),1]
+ufc_under_165_test_KNN<-ufc_under_165[1:286,-1] 
+ufc_under_165_test_labels_KNN<-ufc_under_165[1:286,1]
+#ANN and SVM Keep Labels in the Data for Under 165
+ufc_under_165_train<-ufc_under_165[287:nrow(ufc_under_165),]
+ufc_under_165_test<-ufc_under_165[1:286,]
+#KNN=Need Labels Seperated out for over 165
+ufc_over_165_train_KNN<-ufc_over_165[382:nrow(ufc_over_165),-1]
+ufc_over_165_train_labels_KNN<-ufc_over_165[382:nrow(ufc_over_165),1]
+ufc_over_165_test_KNN<-ufc_over_165[1:381,-1] 
+ufc_over_165_test_labels_KNN<-ufc_over_165[1:381,1]
+#ANN and SVM Keep Labels in the Data for over 165
+ufc_over_165_train<-ufc_over_165[382:nrow(ufc_over_165),]
+ufc_over_165_test<-ufc_over_165[1:381,]
+#We then of course had to create train and test data sets for the models we wanted to make to see how accurate they were.  We used an approximately 80%-20% breakdown for the train and test respectively.  We created these different train and test datasets for KNN (removed the data's y column and placed into labels) and GLM/ANN/SVM/Tree.
 
-#KNN=Need Labels Seperated out for Under 145
-ufc_145_train_KNN<-ufc_under_145[147:nrow(ufc_under_145),-1]
-ufc_145_train_labels_KNN<-ufc_under_145[147:nrow(ufc_under_145),1] 
-ufc_145_test_KNN<-ufc_under_145[1:146,-1] 
-ufc_145_test_labels_KNN<-ufc_under_145[1:146,1]
-#ANN and SVM Keep Labels in the Data for Under 145
-ufc_145_train<-ufc_under_145[147:nrow(ufc_under_145),]
-ufc_145_test<-ufc_under_145[1:146,]
-
-
-#KNN=Need Labels Seperated out for 155-185
-ufc_u185_train_KNN<-ufc_155_to_185[385:nrow(ufc_155_to_185),-1]
-ufc_u185_train_labels_KNN<-ufc_155_to_185[385:nrow(ufc_155_to_185),1] 
-ufc_u185_test_KNN<-ufc_155_to_185[1:384,-1] 
-ufc_u185_test_labels_KNN<-ufc_155_to_185[1:384,1]
-#ANN and SVM Keep Labels in the Data for 155-185
-ufc_u185_train<-ufc_155_to_185[385:nrow(ufc_155_to_185),]
-ufc_u185_test<-ufc_155_to_185[1:384,]
-
-
-#KNN=Need Labels Seperated out for over 185
-ufc_o185_train_KNN<-ufc_over_185[139:nrow(ufc_over_185),-1]
-ufc_o185_train_labels_KNN<-ufc_over_185[139:nrow(ufc_over_185),1]
-ufc_o185_test_KNN<-ufc_over_185[1:138,-1] 
-ufc_o185_test_labels_KNN<-ufc_over_185[1:138,1]
-#ANN and SVM Keep Labels in the Data for over 185
-ufc_o185_train<-ufc_over_185[139:nrow(ufc_over_185),]
-ufc_o185_test<-ufc_over_185[1:138,]
-
+#For the models we highlighted the accuracry percentages below each confusionMatrix. We attempted to beat the No Information rate in every model, since that is the baseline. While we hid the summary and str lines, we felt the confusionMatrices were important enough to show for each (this makes the file 72 pages long while printing, so to reduce to about 20 hide the matrices)
 ```
 
-####First Model: KNN
+####First Model: GLM Model
+```{r GLM Model}
+#All:
+GLMall<-glm(Winner~ difference_age + R_avg_opp_DISTANCE_landed+ B_avg_HEAD_landed + R_losses +difference_avg_TD_att + R_avg_opp_SIG_STR_pct+ R_total_title_bouts + difference_avg_opp_TOTAL_STR_landed+ R_win_by_Decision_Split+difference_height+difference_avg_opp_TD_pct + difference_avg_opp_head_landed + difference_avg_CLINCH_landed+ difference_weight+difference_avg_GROUND_landed, data=ufc_train, family="binomial" )
+
+#Train_All
+prediction_all_train<-ifelse(predict(GLMall, newdata=ufc_train, type= "response") >= 0.47, 1,0)
+confusionMatrix(as.factor(prediction_all_train),as.factor(ufc_train$Winner))
+# Accuracy: 0.6977
+
+#Test_All
+prediction_all_test<-ifelse(predict(GLMall, newdata=ufc_test, type= "response") >= 0.49, 1,0)
+confusionMatrix(as.factor(prediction_all_test),as.factor(ufc_test$Winner))
+# Accuracy: 0.6795
+
+#Under 165:
+GLMu165<-glm(Winner~ difference_age + R_avg_opp_DISTANCE_landed+ B_avg_HEAD_landed + R_losses +difference_avg_TD_att + R_avg_opp_SIG_STR_pct+ R_total_title_bouts + difference_avg_opp_TOTAL_STR_landed+ R_win_by_Decision_Split +difference_height+difference_avg_opp_TD_pct + difference_avg_opp_head_landed + difference_avg_CLINCH_landed+ difference_weight+difference_avg_GROUND_landed, data=ufc_under_165_train, family="binomial" )
+
+#Train_U165
+prediction_u165_train<-ifelse(predict(GLMu165, newdata=ufc_under_165_train, type= "response") >= 0.48, 1,0)
+confusionMatrix(as.factor(prediction_u165_train),as.factor(ufc_under_165_train$Winner))
+# Accuracy: 0.7002
+
+#Test_U165
+prediction_u165_test<-ifelse(predict(GLMu165, newdata=ufc_under_165_test, type= "response") >= 0.5, 1,0)
+confusionMatrix(as.factor(prediction_u165_test),as.factor(ufc_under_165_test$Winner))
+# Accuracy: 0.6119
+
+#Over 185:
+GLMo165<-glm(Winner~ difference_age + R_avg_opp_DISTANCE_landed+ B_avg_HEAD_landed + R_losses +difference_avg_TD_att + R_avg_opp_SIG_STR_pct+ R_total_title_bouts + difference_avg_opp_TOTAL_STR_landed+ R_win_by_Decision_Split +difference_height+difference_avg_opp_TD_pct + difference_avg_opp_head_landed + difference_avg_CLINCH_landed+ difference_weight+difference_avg_GROUND_landed, data=ufc_over_165_train, family="binomial" )
+
+#Train_O165
+prediction_o165_train<-ifelse(predict(GLMo165, newdata=ufc_over_165_train, type= "response") >= 0.50, 1,0)
+confusionMatrix(as.factor(prediction_o165_train),as.factor(ufc_over_165_train$Winner))
+# Accuracy: 0.6982
+
+#Test_O165
+prediction_o165_test<-ifelse(predict(GLMo165, newdata=ufc_over_165_test, type= "response") >= 0.54, 1,0)
+confusionMatrix(as.factor(prediction_o165_test),as.factor(ufc_over_165_test$Winner))
+# Accuracy 0.7297
+
+#Checking to make sure output is correct
+#table(prediction_all)
+#table(prediction_u165)
+#table(prediction_o165)
+
+# The GLM model is fairly accurate in terms of predicting outcomes, and was better than the no information rate for every prediction. In terms of finding the highest accuracies, my process for all of them was to start with considering results of over 0.5 as a yes, and then increasing or decreasing that value by 0.01 until the highest accuracy was found. One point to note is that GLM performed quite poorly on the under 165 test data, being only around 61% accurate, while the rest of the models were in the 68-73% accuracy range.
+```
+
+
+####Second Model: KNN
 ```{r KNN Model}
-#UFC u145
-KNNm145<- knn(train= ufc_145_train_KNN, test=ufc_145_test_KNN, cl= ufc_145_train_labels_KNN, k=7)
+#All weight classes
+KNNm_test<- knn(train= ufc_train_KNN, test=ufc_test_KNN, cl= ufc_train_labels_KNN, k=60)
+KNNm_train<- knn(train= ufc_train_KNN, test=ufc_train_KNN, cl= ufc_train_labels_KNN, k=25)
+confusionMatrix(as.factor(KNNm_test), as.factor(ufc_test_labels_KNN))
+# Accuracy: 0.6766
+confusionMatrix(as.factor(KNNm_train), as.factor(ufc_train_labels_KNN))
+# Accuracy: 0.697
 
-CT145<-CrossTable(x=ufc_145_test_labels_KNN, y=KNNm145, prop.chisq = FALSE, fisher=TRUE)
+#UFC Under 165
+KNNmu165_train<- knn(train= ufc_under_165_train_KNN, test=ufc_under_165_train_KNN, cl= ufc_under_165_train_labels_KNN, k=3)
+KNNmu165_test<- knn(train= ufc_under_165_train_KNN, test=ufc_under_165_test_KNN, cl= ufc_under_165_train_labels_KNN, k=15)
+confusionMatrix(as.factor(KNNmu165_test), as.factor(ufc_under_165_test_labels_KNN))
+# Accuracy: 0.6189
+confusionMatrix(as.factor(KNNmu165_train), as.factor(ufc_under_165_train_labels_KNN))
+# Accuracy: 0.8042
 
-confusionMatrix(as.factor(KNNm145), as.factor(ufc_145_test_labels_KNN))
+#UFC Over 165
+KNNmo165_test<- knn(train= ufc_over_165_train_KNN, test=ufc_over_165_test_KNN, cl= ufc_over_165_train_labels_KNN, k=100)
+KNNmo165_train<- knn(train= ufc_over_165_train_KNN, test=ufc_over_165_train_KNN, cl= ufc_over_165_train_labels_KNN, k=3)
+confusionMatrix(as.factor(KNNmo165_test), as.factor(ufc_over_165_test_labels_KNN))
+# Accuracy: 0.7165
+confusionMatrix(as.factor(KNNmo165_train), as.factor(ufc_over_165_train_labels_KNN))
+# Accuracy: 0.8126
 
-#UFC 145-185
-KNNmu185<- knn(train= ufc_u185_train_KNN, test=ufc_u185_test_KNN, cl= ufc_u185_train_labels_KNN, k=7)
+#Checking to make sure output is correct
+#table(KNNm)
+#table(KNNmu165)
+#table(KNNmo165)
 
-CTu185<-CrossTable(x=ufc_u185_test_labels_KNN, y=KNNmu185, prop.chisq = FALSE, fisher=TRUE)
-
-confusionMatrix(as.factor(KNNmu185), as.factor(ufc_u185_test_labels_KNN))
-
-#UFC Over 185
-KNNmo185<- knn(train= ufc_o185_train_KNN, test=ufc_o185_test_KNN, cl= ufc_o185_train_labels_KNN, k=7)
-
-CTo185<-CrossTable(x=ufc_o185_test_labels_KNN, y=KNNmo185, prop.chisq = FALSE, fisher=TRUE)
-
-confusionMatrix(as.factor(KNNmo185), as.factor(ufc_o185_test_labels_KNN))
+# The KNN model resulted in similar patterns as the GLM models in terms of accuracy. Namely, the accuracies were quite high in all of the models except for on the under 165 test data, where it was only 61.89%. It is important to note though, that the accuracies were abnormally high for the train data on the split data sets, both having accuracies of over 80%, and these accuracies were obtained with a very small number of nearest neighbors (only 3). I found the best accuracies per data frame with a similar method as before, increasing the k value until the best confusion matrix results were obtained. KNN performed the best on the over 165 training data.
 ```
 
-####Second Model: SVM
+####Third Model: SVM
 ```{r SVM Model}
-#UFC u145
-svmu145<-ksvm(Winner~., data=ufc_145_train, kernel="rbfdot") #Figure out what scale issue is
+#All weight classes
+svm_all<-ksvm(Winner~., data=ufc_train, kernel="rbfdot") 
+svm_predict_test<-predict(svm_all, ufc_test)
+svm_bin_test<-ifelse(svm_predict_test>=0.5,1,0)
+confusionMatrix(as.factor(svm_bin_test),as.factor(ufc_test$Winner))
+# Accuracy: 0.681
 
-svm_predict1<-predict(svmu145, ufc_145_test)
+svm_predict_train<-predict(svm_all, ufc_train)
+svm_bin_train<-ifelse(svm_predict_train>=0.15,1,0)
+confusionMatrix(as.factor(svm_bin_train),as.factor(ufc_train$Winner))
+# Accuracy: 0.7568
 
-svm_u145_bin<-ifelse(svm_predict1>=0.6,1,0)
+#UFC u165:
+svmu165<-ksvm(Winner~., data=ufc_under_165_train, kernel="rbfdot") 
 
-confusionMatrix(as.factor(svm_u145_bin),as.factor(ufc_145_test$Winner))
+#Test
+svm_predict1_test<-predict(svmu165, ufc_under_165_test)
+svm_u165_bin_test<-ifelse(svm_predict1_test>=0.5,1,0)
+confusionMatrix(as.factor(svm_u165_bin_test),as.factor(ufc_under_165_test$Winner))
+# Accuracy: 0.6224
 
-#UFC u185
-svmu185<-ksvm(Winner~., data=ufc_u185_train, kernel="rbfdot") #Figure out what scale issue is
+#Train
+svm_predict1_train<-predict(svmu165, ufc_under_165_train)
+svm_u165_bin_train<-ifelse(svm_predict1_train>=0.35,1,0)
+confusionMatrix(as.factor(svm_u165_bin_train),as.factor(ufc_under_165_train$Winner))
+# 0.7666
 
-svm_predict2<-predict(svmu185, ufc_u185_test)
+#UFC o165
+svmo165<-ksvm(Winner~., data=ufc_over_165_train, kernel="rbfdot")
 
-svm_u185_bin<-ifelse(svm_predict2>=0.6,1,0)
+#Test
+svm_predict2_test<-predict(svmo165, ufc_over_165_test)
+svm_o165_bin_test<-ifelse(svm_predict2_test>=0.55,1,0)
+confusionMatrix(as.factor(svm_o165_bin_test),as.factor(ufc_over_165_test$Winner))
+# Accuracy: 0.7192
 
-confusionMatrix(as.factor(svm_u185_bin),as.factor(ufc_u185_test$Winner))
+#Train
+svm_predict2_train<-predict(svmo165, ufc_over_165_train)
+svm_o165_bin_train<-ifelse(svm_predict2_train>=0.15,1,0)
+confusionMatrix(as.factor(svm_o165_bin_train),as.factor(ufc_over_165_train$Winner))
+# Accuracy: 0.7699
 
-#UFC o185
-svmo185<-ksvm(Winner~., data=ufc_o185_train, kernel="rbfdot") #Figure out what scale issue is
+#Checking to make sure output is correct
+#table(svm_bin)
+#table(svm_u165_bin)
+#table(svm_o165_bin)
 
-svm_predict3<-predict(svmo185, ufc_o185_test)
-
-svm_o185_bin<-ifelse(svm_predict3>=0.6,1,0)
-
-confusionMatrix(as.factor(svm_o185_bin),as.factor(ufc_o185_test$Winner))
+# Regardless of the model being used, it seems as though the predictions for the under 165 test data are significantly poorer than the predictions on the rest of the data frames. To obtain the best accuracies, I played around with the threshold for converting a prediction into a win or a loss to find the optimal confusion matrix values. The SVM performed the best out of all the models on the combined training and testing data.
 ```
 
-####Third Model: Neural Network
-```{r}
-#U145 Model
-U145ANN<-neuralnet(Winner~., data=ufc_145_train, hidden=1, linear.output = FALSE) #must use linear since 0 or 1
+####Fourth Model: Neural Network
+```{r Neural Network}
+#All weight classes:
+All_ANN<-neuralnet(Winner~., data=ufc_train, hidden=1, linear.output = FALSE) #must use linear since 0 or 1
+plot(All_ANN) #plotting the model
 
-plot(U145ANN) #plotting the model
+#Test
+All_ANN_results_test<- neuralnet::compute(All_ANN,ufc_test[2:ncol(ufc_test)]) #used neuralnet:: since platform was confused by what compute to use. Do not include actual label.
+predicted_Winner_test<-All_ANN_results_test$net.result
+win_bin_test<-ifelse(predicted_Winner_test >= 0.48,1,0)
+confusionMatrix(as.factor(win_bin_test),as.factor(ufc_test$Winner))
+# Accuracy: 0.6751
 
-U145ANN_results<- neuralnet::compute(U145ANN,ufc_145_test[2:ncol(ufc_145_test)]) #used neuralnet:: since platform was confused by what compute to use. Do not include actual label.
+#Train
+All_ANN_results_train<- neuralnet::compute(All_ANN,ufc_train[2:ncol(ufc_train)]) 
+predicted_Winner_train<-All_ANN_results_train$net.result
+win_bin_train<-ifelse(predicted_Winner_train >= 0.51,1,0)
+confusionMatrix(as.factor(win_bin_train),as.factor(ufc_train$Winner))
+# Accuracy: 0.7014
 
-predicted_Winner1<-U145ANN_results$net.result
+#U165 Model:
+U165ANN<-neuralnet(Winner~., data=ufc_under_165_train, hidden=1, linear.output = FALSE) 
+plot(U165ANN) #plotting the model
 
-cor(predicted_Winner1, ufc_145_test$Winner) #.07 :(
+#Test
+U165ANN_results_test<- neuralnet::compute(U165ANN,ufc_under_165_test[2:ncol(ufc_under_165_test)]) 
+predicted_Winner1_test<-U165ANN_results_test$net.result                         
+win_bin1_test<-ifelse(predicted_Winner1_test >= .5,1,0) 
+confusionMatrix(as.factor(win_bin1_test),as.factor(ufc_under_165_test$Winner))
+# Accuracy: 0.6329
 
-win_bin1<-ifelse(predicted_Winner1 >= 0.062,1,0)
+#Train
+U165ANN_results_train<- neuralnet::compute(U165ANN,ufc_under_165_train[2:ncol(ufc_under_165_train)]) 
+predicted_Winner1_train<-U165ANN_results_train$net.result                           
+win_bin1_train<-ifelse(predicted_Winner1_train >= .5,1,0) 
+confusionMatrix(as.factor(win_bin1_train),as.factor(ufc_under_165_train$Winner))
+# Accuracy: 0.708
 
-confusionMatrix(as.factor(win_bin1),as.factor(ufc_145_test$Winner))
+#predicted_Winner1
+#table(win_bin1)
+#levels(as.factor(win_bin1))
+#levels(as.factor(ufc_under_165_test$Winner))
 
-#U185 Model
-U185ANN<-neuralnet(Winner~., data=ufc_u185_train, hidden=1, linear.output = FALSE) #must use linear since 0 or 1
-
-plot(U185ANN) #plotting the model
-
-U185ANN_results<- neuralnet::compute(U185ANN,ufc_u185_test[2:ncol(ufc_u185_test)]) #used neuralnet:: since platform was confused by what compute to use. Do not include actual label.
-
-predicted_Winner2<-U185ANN_results$net.result
-
-cor(predicted_Winner2, ufc_u185_test$Winner) #.11 :(
-
-win_bin2<-ifelse(predicted_Winner2 >= 0.062,1,0)
-
-confusionMatrix(as.factor(win_bin2),as.factor(ufc_u185_test$Winner))
 
 #O185 Model
-O185ANN<-neuralnet(Winner~., data=ufc_o185_train, hidden=1, linear.output = FALSE) #must use linear since 0 or 1
+O165ANN<-neuralnet(Winner~., data=ufc_over_165_train, hidden=1, linear.output = FALSE) 
+plot(O165ANN)
 
-plot(O185ANN) #plotting the model
+#Test
+O165ANN_results_test<- neuralnet::compute(O165ANN,ufc_over_165_test[2:ncol(ufc_over_165_test)]) 
+predicted_Winner2_test<-O165ANN_results_test$net.result
+win_bin2_test<-ifelse(predicted_Winner2_test >= 0.52,1,0)
+confusionMatrix(as.factor(win_bin2_test),as.factor(ufc_over_165_test$Winner))
+# Accuracy: 0.7192
 
-O185ANN_results<- neuralnet::compute(O185ANN,ufc_o185_test[2:ncol(ufc_o185_test)]) #used neuralnet:: since platform was confused by what compute to use. Do not include actual label.
+#Train
+O165ANN_results_train<- neuralnet::compute(O165ANN,ufc_over_165_train[2:ncol(ufc_over_165_train)]) 
+predicted_Winner2_train<-O165ANN_results_train$net.result
+win_bin2_train<-ifelse(predicted_Winner2_train >= 0.52,1,0)
+confusionMatrix(as.factor(win_bin2_train),as.factor(ufc_over_165_train$Winner))
+# Accuracy 0.7009
 
-predicted_Winner3<-O185ANN_results$net.result
+#predicted_Winner2
+#table(win_bin2)
+#levels(as.factor(win_bin2))
+#levels(as.factor(ufc_over_165_test$Winner))
 
-cor(predicted_Winner3, ufc_o185_test$Winner) #.17 :(
-
-win_bin3<-ifelse(predicted_Winner3 >= 0.062,1,0)
-
-confusionMatrix(as.factor(win_bin3),as.factor(ufc_o185_test$Winner))
+# The accuracies here were maximized by doing a search through the thresholds for predicting a win or loss with each dataframe. This model seems to perform worse than SVM and KNN on average. It was weird that the best neural net was simply 1 layer (tested 2 and 3 as well). But, as usual, the trends (in how the accuracies were based on the data frame) were consistent with the rest of the models. This model was the best on the under 165 testing data.
 ```
 
-####Model 4: Tree Model
+####Fifth Model: Tree
 ```{r Tree Model}
-#Under 145
-#c5.0 Models needa factor outcome, so convert Winner to factor:
-ufc_145_train$Winner<-as.factor(ufc_145_train$Winner)
+#All weights:
+tree_all <- C5.0(ufc_train[,-1], as.factor(ufc_train$Winner), trials=25) #c5.0 Models needa factor outcome, so convert Winner to factor
 
-tree_u145 <- C5.0(ufc_145_train[,-1], ufc_145_train$Winner, trials=3) 
+#Test
+tree_pred_test<- predict(tree_all, ufc_test)
+confusionMatrix(as.factor(tree_pred_test), as.factor(ufc_test$Winner))
+# Accuracy: 0.6751
 
-tree_u145_pred<- predict(tree_u145, ufc_145_test)
+#Train
+tree_pred_train<- predict(tree_all, ufc_train)
+confusionMatrix(as.factor(tree_pred_train), as.factor(ufc_train$Winner))
+# Accuracy: 0.7115
 
-confusionMatrix(as.factor(tree_u145_pred), as.factor(ufc_145_test$Winner))
+#Under 165:
+tree_u165 <- C5.0(ufc_under_165_train[,-1], as.factor(ufc_under_165_train$Winner), trials=25) 
 
-#Under 185
-ufc_u185_train$Winner<-as.factor(ufc_u185_train$Winner)
+#Test
+tree_u165_pred_test<- predict(tree_u165, ufc_under_165_test)
+confusionMatrix(as.factor(tree_u165_pred_test), as.factor(ufc_under_165_test$Winner))
+# Accuracy: 0.6084
 
-tree_u185 <- C5.0(ufc_u185_train[,-1], ufc_u185_train$Winner, trials=3) 
-
-tree_u185_pred<- predict(tree_u185, ufc_u185_test)
-
-confusionMatrix(as.factor(tree_u185_pred), as.factor(ufc_u185_test$Winner))
+#Train
+tree_u165_pred_train<- predict(tree_u165, ufc_under_165_train)
+confusionMatrix(as.factor(tree_u165_pred_train), as.factor(ufc_under_165_train$Winner))
+# Accuracy: 0.8584
 
 #Over 185
-ufc_o185_train$Winner<-as.factor(ufc_o185_train$Winner)
+tree_o165 <- C5.0(ufc_over_165_train[,-1], as.factor(ufc_over_165_train$Winner), trials=25) 
 
-tree_o185 <- C5.0(ufc_o185_train[,-1], ufc_o185_train$Winner, trials=3) 
+#Test
+tree_o165_pred_test<- predict(tree_o165, ufc_over_165_test)
+confusionMatrix(as.factor(tree_o165_pred_test), as.factor(ufc_over_165_test$Winner))
+# Accuracy: 0.7323
 
-tree_o185_pred<- predict(tree_o185, ufc_o185_test)
+#Train
+tree_o165_pred_train<- predict(tree_o165, ufc_over_165_train)
+confusionMatrix(as.factor(tree_o165_pred_train), as.factor(ufc_over_165_train$Winner))
+# Accuracy: 0.716
 
-confusionMatrix(as.factor(tree_o185_pred), as.factor(ufc_o185_test$Winner))
+# This model followed the same patterns as before, and in terms of determining trials, we just chose numbers large enough so that the three model was trained as much as possible to obtain the highest prediction accuracies. The tree model overall seemed to be poorer than most, except for its predictions on the under 165 training data, in which it was abnormally high (almost 86%). Overall, this model performed best out of all of them models on the under 165 training data as well as the over 165 testing data.
 ```
 
-####Creating the Master Model: Simple Majority
+
+####Creating the Master Model: Stacked Model
 ```{r Final Combined Models}
-#Name of KNN model: KNNm145, actual column: KNNm145 (changes to u185; o185)
-#Name of SVM model: svmu145, actual column: svm_u145_bin (changes to u185, 2; o185, 3)
-#Name of ANN model:U145ANN, actual column:win_bin1 (changes to U185ANN, win_bin2; O185ANN, 3)
-#Name of Tree Model: tree_u145, actual columb: tree_u145_pred (changes to u185; o185)
-#Row to predict: ufc_145_labels_KNN (changes)
+#A stacked model requires both train and test predictions, so in the previous models above we have both train and test predictions for each data set/weight class. By then combining train and test into two data frames and giving both columns the same names we were able to efficiently run a stacked model. The top model in the plot is the most important (since it affects all branches). The p values show that the model is significant. The 1s are when the model predicts the "under-dog" fighter will win. The bars shows how the actual fights went (when more filled up with black it is the percentage of under-dog wins). 
 
-#Create Data frame to bring together results: U145
-combinedu145<-data.frame(KNNm145,svm_u145_bin, win_bin1, tree_u145_pred, ufc_145_test_labels_KNN )
-#head(combinedu145)
+#Create Data frame to bring together results: All
+combined_all_train<-data.frame(prediction_all_train, KNNm_train, svm_bin_train, win_bin_train, tree_pred_train, ufc_train_labels_KNN) 
+combined_all_test<-data.frame(prediction_all_test,KNNm_test, svm_bin_test, win_bin_test, tree_pred_test, ufc_test_labels_KNN)
 
-#Make the data numeric so functions run properly
-combinedu145$KNNm145<-as.numeric(combinedu145$KNNm145)
-combinedu145$svm_u145_bin<-as.numeric(combinedu145$svm_u145_bin)
-combinedu145$win_bin1<-as.numeric(combinedu145$win_bin1)
-combinedu145$tree_u145_pred<-as.numeric(combinedu145$tree_u145_pred)
+#Making all the Columns factors: Train:
+combined_all_train$prediction_all_train<-as.factor(combined_all_train$prediction_all_train)
+combined_all_train$KNNm_train<-as.factor(combined_all_train$KNNm_train)
+combined_all_train$svm_bin_train<-as.factor(combined_all_train$svm_bin_train)
+combined_all_train$win_bin_train<-as.factor(combined_all_train$win_bin_train)
+combined_all_train$tree_pred_train<-as.factor(combined_all_train$tree_pred_train)
+combined_all_train$ufc_train_labels_KNN<-as.factor(combined_all_train$ufc_train_labels_KNN)
 
-#Ifelse statement to combine the three models
-combinedu145$result<-ifelse(combinedu145$KNNm145+combinedu145$svm_u145_bin+combinedu145$win_bin1+combinedu145$tree_u145_pred >= 2,1,0)
+#Test
+combined_all_test$prediction_all_test<-as.factor(combined_all_test$prediction_all_test)
+combined_all_test$KNNm_test<-as.factor(combined_all_test$KNNm_test)
+combined_all_test$svm_bin_test<-as.factor(combined_all_test$svm_bin_test)
+combined_all_test$win_bin_test<-as.factor(combined_all_test$win_bin_test)
+combined_all_test$tree_pred_test<-as.factor(combined_all_test$tree_pred_test)
+combined_all_test$ufc_test_labels_KNN<-as.factor(combined_all_test$ufc_test_labels_KNN)
 
-confusionMatrix(as.factor(combinedu145$result),as.factor(ufc_145_test_labels_KNN))
+#Creating same names so can run the Stacked Model
+colnames(combined_all_test)<-c("glm_model_all", "Knn_all", "svm_all", "ANN_all","tree_all", "labels_all")
+colnames(combined_all_train)<-c("glm_model_all", "Knn_all", "svm_all", "ANN_all","tree_all", "labels_all")
 
 
-#Create Data frame to bring together results: U185
-combinedu185<-data.frame(KNNmu185,svm_u185_bin, win_bin2, tree_u185_pred, ufc_u185_test_labels_KNN )
-#head(combinedu145)
+#Create the model -> Stacking with a Ctree to find out if it helps any!
+stacked_model_all<-ctree(combined_all_train$labels_all~.+1, data=combined_all_train)
+stacked_model_all_pred<-predict(stacked_model_all, combined_all_test)
+confusionMatrix(stacked_model_all_pred, as.factor(combined_all_test$labels)) #Accuracy: 0.681
+plot(stacked_model_all)
 
-#Make the data numeric so functions run properly
-combinedu185$KNNmu185<-as.numeric(combinedu185$KNNmu185)
-combinedu185$svm_u185_bin<-as.numeric(combinedu185$svm_u185_bin)
-combinedu185$win_bin2<-as.numeric(combinedu185$win_bin2)
-combinedu185$tree_u185_pred<-as.numeric(combinedu185$tree_u185_pred)
+#All model: It did not improve over the accuracy for best all model (SVM). The most important model is SVM, followed by Tree and KNN. If the SVM, KNN, and Tree all predicted 1, then there was an 80% probability then it actually was an upset. If both SVM and Tree predicted no, then there is also an 80% chance then it was not an upset. These two are much better than the no-information rate of simply 70%. Things become more dicey when looking at SVM 0 and Tree 1, where the tree is 40% accurate when the SVM is not accurate. When the SVM 1, KNN 1, and Tree 0 then it is about a 58% shot whether the fight will be an upset. Lastly, when SVM is 1, but KNN is 0 then there is 60% chance of an upset.
 
-#Ifelse statement to combine the three models
-combinedu185$result<-ifelse(combinedu185$KNNmu185+combinedu185$svm_u185_bin+combinedu185$win_bin2+combinedu185$tree_u185_pred >= 2,1,0)
 
-confusionMatrix(as.factor(combinedu185$result),as.factor(ufc_u185_test_labels_KNN))
+#Under 165 Stacked Model 
+combinedu165_train<-data.frame(prediction_u165_train, KNNmu165_train,svm_u165_bin_train, win_bin1_train, tree_u165_pred_train, ufc_under_165_train_labels_KNN)
+combinedu165_test<-data.frame(prediction_u165_test, KNNmu165_test,svm_u165_bin_test, win_bin1_test, tree_u165_pred_test, ufc_under_165_test_labels_KNN)
 
-#Create Data frame to bring together results: O185
-combinedo185<-data.frame(KNNmo185,svm_o185_bin, win_bin3, tree_o185_pred, ufc_o185_test_labels_KNN )
-#head(combinedu145)
+#Making all the Columns factors: Train
+combinedu165_train$prediction_u165_train<-as.factor(combinedu165_train$prediction_u165_train)
+combinedu165_train$KNNmu165_train<-as.factor(combinedu165_train$KNNmu165_train)
+combinedu165_train$svm_u165_bin_train<-as.factor(combinedu165_train$svm_u165_bin_train)
+combinedu165_train$win_bin1_train<-as.factor(combinedu165_train$win_bin1_train)
+combinedu165_train$tree_u165_pred_train<-as.factor(combinedu165_train$tree_u165_pred_train)
+combinedu165_train$ufc_under_165_train_labels_KNN<-as.factor(combinedu165_train$ufc_under_165_train_labels_KNN)
 
-#Make the data numeric so functions run properly
-combinedo185$KNNmo185<-as.numeric(combinedo185$KNNmo185)
-combinedo185$svm_o185_bin<-as.numeric(combinedo185$svm_o185_bin)
-combinedo185$win_bin3<-as.numeric(combinedo185$win_bin3)
-combinedo185$tree_o185_pred<-as.numeric(combinedo185$tree_o185_pred)
+#Test
+combinedu165_test$prediction_u165_test<-as.factor(combinedu165_test$prediction_u165_test)
+combinedu165_test$KNNmu165_test<-as.factor(combinedu165_test$KNNmu165_test)
+combinedu165_test$svm_u165_bin_test<-as.factor(combinedu165_test$svm_u165_bin_test)
+combinedu165_test$win_bin1_test<-as.factor(combinedu165_test$win_bin1_test)
+combinedu165_test$tree_u165_pred_test<-as.factor(combinedu165_test$tree_u165_pred_test)
+combinedu165_test$ufc_under_165_test_labels_KNN<-as.factor(combinedu165_test$ufc_under_165_test_labels_KNN)
 
-#Ifelse statement to combine the three models
-combinedo185$result<-ifelse(combinedo185$KNNmo185+combinedo185$svm_o185_bin+combinedo185$win_bin3+combinedo185$tree_o185_pred >= 2,1,0)
+#Making the data frames have the same column names:
+colnames(combinedu165_test)<-c("glm_model_u165", "Knn_u165", "svm_u165", "ANN_u165","tree_u165", "labels_u165")
+colnames(combinedu165_train)<-c("glm_model_u165", "Knn_u165", "svm_u165", "ANN_u165","tree_u165", "labels_u165")
 
-confusionMatrix(as.factor(combinedo185$result),as.factor(ufc_o185_test_labels_KNN))
+#Creating the Stacked model:
+stacked_model_u165<-ctree(combinedu165_train$labels_u165~.+1, data=combinedu165_train)
+stacked_model_u165_pred<-predict(stacked_model_u165, combinedu165_test)
+confusionMatrix(stacked_model_u165_pred, as.factor(combinedu165_test$labels_u165)) #Accuracy: .6084
+plot(stacked_model_u165)
+
+#Under 165 model: It did not imporve over the accuracy for best model (tree). The most important is Tree and then KNN. It is very interesting that there are two KNN plots underneath the tree model. Like in the past if all predict yes or all predict no then it has a high chance of being correct (95% if both yes or both no). However, if Tree 1 and KNN 0 then the tree is more accurate since about 75% of those results are upsets. Lastly, If Tree 0 and KNN 1 then its about a 50% chance of upset.
+
+
+
+#Over 165 Stacked Model 
+combinedo165_train<-data.frame(prediction_o165_train, KNNmo165_train,svm_o165_bin_train, win_bin2_train, tree_o165_pred_train, ufc_over_165_train_labels_KNN)
+combinedo165_test<-data.frame(prediction_o165_test, KNNmo165_test,svm_o165_bin_test, win_bin2_test, tree_o165_pred_test, ufc_over_165_test_labels_KNN)
+
+#Making all the Columns factors: Train
+combinedo165_train$prediction_o165_train<-as.factor(combinedo165_train$prediction_o165_train)
+combinedo165_train$KNNmo165_train<-as.factor(combinedo165_train$KNNmo165_train)
+combinedo165_train$svm_o165_bin_train<-as.factor(combinedo165_train$svm_o165_bin_train)
+combinedo165_train$win_bin2_train<-as.factor(combinedo165_train$win_bin2_train)
+combinedo165_train$tree_o165_pred_train<-as.factor(combinedo165_train$tree_o165_pred_train)
+combinedo165_train$ufc_over_165_train_labels_KNN<-as.factor(combinedo165_train$ufc_over_165_train_labels_KNN)
+
+#Test
+combinedo165_test$prediction_o165_test<-as.factor(combinedo165_test$prediction_o165_test)
+combinedo165_test$KNNmo165_test<-as.factor(combinedo165_test$KNNmo165_test)
+combinedo165_test$svm_o165_bin_test<-as.factor(combinedo165_test$svm_o165_bin_test)
+combinedo165_test$win_bin2_test<-as.factor(combinedo165_test$win_bin2_test)
+combinedo165_test$tree_o165_pred_test<-as.factor(combinedo165_test$tree_o165_pred_test)
+combinedo165_test$ufc_over_165_test_labels_KNN<-as.factor(combinedo165_test$ufc_over_165_test_labels_KNN)
+
+#Making the data frames have the same column names: Just like example from Class to show both are possible.
+names(combinedo165_train)<-names(combinedo165_test)
+
+#Creating the Stacked model:
+stacked_model_o165<-ctree(combinedo165_train$ufc_over_165_test_labels_KNN~.+1, data=combinedo165_train)
+stacked_model_o165_pred<-predict(stacked_model_o165, combinedo165_test)
+confusionMatrix(stacked_model_o165_pred, as.factor(combinedo165_test$ufc_over_165_test_labels_KNN)) #Accuracy .7139
+plot(stacked_model_o165)
+
+#Over 165 Model: This model we used the switch naems command for train to test, which is why the names are different than previous plots. The most important one is KNN, followed by SVM and then GLM model. This is the only model where the GLM makes an appearance. If both KNN and SVM predict 1 then about 82% chance correct. If KNN and SVM both predict 0 then 85% chance correct that not an upset. If KNN 1 and SVM 0 then about 60% upset. If KNN 0 SVM 1 and GLM 1 then 22% chance upset. If KNN 0, SVM 1, and GLM 0 then 44% chance upset. As you can see in the last two that GLM is completely wrong, since if predict 1 then its actually a less-likeliood of an upset.
 ```
 
-```{r Stuff to Do}
-###Find a way to delete some columns, Jake doesn't like step, but I'm Willing to compromise
-###Figure out lines 172, Idk why still NA's... Just play around in that section and see if you can solve
-###Run the models, once two previous lines are done (above) and then play around with them
-###Especially changing the hidden, and binary predictions
-###Pretty Sure we do not need Cross table and confusionMatrix
-###could toss into costs, thoughts? Since we are gambling ;) For Tree Model example
-###Toss into summaries, where wanted and then # over them so don't mess-up code.
-###Yea, I got no idea why it goes from 145 to 155 :(
-###Probably should create a GLM Model
-###Someone can create a womens models, I just ignored them
-####No idea this error line 293--- most confusion matrix are SOL :(
-###draw_confusion_matrix(x)- makes them look pretty
-```
 
+Conclusion: It seems that despite our best efforts that our models were only a couple percentage points above the No Information Rate amount for the test predictions. While we did a lot better on the train data, that is easier to do since train is both the input and predict. If we had more time we would run bagging/boosting/random Forest models and compare those results. It was interesting that our stacked model never improved upon the input models. One insight learned, if you must bet on under-dog than choose the heavier weight-classes, since higher likelihood of upset (almost 10% more likely comapred to under 165). Overall, even with the small percentage, these models do give some insight that could help bettors choose whether to bet on the under-dog.
 
